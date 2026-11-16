@@ -1,0 +1,9 @@
+# Read by the org's actionlint ruleset workflow, which lints this repository's pull requests.
+#
+# `uses: $/` in _file-sync.yml is GitHub's self repository reference to this repository's root
+# action, at the commit the workflow runs at. actionlint only accepts `$/` followed by a path, so
+# that one finding is ignored there, and nowhere else.
+paths:
+  .github/workflows/_file-sync.yml:
+    ignore:
+      - 'specifying action "\$/" in invalid format because path is missing'

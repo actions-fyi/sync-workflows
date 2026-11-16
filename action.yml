@@ -1,110 +1,97 @@
-name: 'Repo File Sync Action'
-description: 'GitHub Action to Sync Files like Workflows Between Repositories.'
-author: 'step-security'
-
-inputs:
-  GH_PAT:
-    description: |
-      GitHub Personal Access Token to use to get repos and write secrets
-    required: false
-  GH_INSTALLATION_TOKEN:
-    description: |
-      GitHub App Installation Token to used to access repos
-    required: false
-  CONFIG_PATH:
-    description: | 
-      The path for the sync configuration file
-    required: false
-  IS_FINE_GRAINED: 
-    description: |
-      Label GH_PAT as a fine grained token
-    required: false
-  PR_LABELS:
-    description: |
-      Labels which will be added to the pull request. Defaults to sync. Set to false to turn off
-    required: false
-  PR_BODY:
-    description: |
-      Additional content to add in the PR description. Defaults to ''
-    required: false
-  ASSIGNEES:
-    description: |
-      Users to assign to the pull request. Defaults to none
-    required: false
-  REVIEWERS:
-    description: |
-      Users to request a review of the pull request from. Defaults to none
-    required: false
-  TEAM_REVIEWERS:
-    description: |
-      Teams to request a review of the pull request from. Defaults to none
-    required: false
-  COMMIT_PREFIX:
-    description: |
-      Prefix for commit message and pull request title. Defaults to 🔄
-    required: false
-  COMMIT_BODY:
-    description: |
-      Commit message body. Will be appended to commit message, separated by two line returns. Defaults to ''
-    required: false
-  COMMIT_EACH_FILE:
-    description: |
-      Commit each file seperately. Defaults to true
-    required: false
-  GIT_EMAIL:
-    description: |
-      The e-mail address used to commit the synced files. Defaults to the email of the GitHub PAT
-    required: false
-  GIT_USERNAME:
-    description: |
-      The username used to commit the synced files. Defaults to the username of the GitHub PAT
-    required: false
-  TMP_DIR:
-    description: |
-      The working directory where all sync operations will be done. Defaults to `tmp-${Date.now().toString()}`
-    required: false
-  DRY_RUN:
-    description: |
-      Run everything except for nothing will be updated. Defaults to false
-    required: false
-  SKIP_CLEANUP:
-    description: |
-      Skip removing the temporary directory (useful for debugging). Defaults to false
-    required: false
-  OVERWRITE_EXISTING_PR:
-    description: |
-      Overwrite any existing Sync PR with the new changes. Defaults to true
-    required: false
-  ORIGINAL_MESSAGE:
-    description: |
-      Re-use the original commit message for commits. Works only if the action is triggered by pushing one commit. Defaults to false
-    required: false
-  COMMIT_AS_PR_TITLE:
-    description: |
-      Re-use the commit message as PR title. Works only if ORIGINAL_MESSAGE is on and PR has one commit. Defaults to false
-    required: false
-  SKIP_PR:
-    description: |
-      Skips creating a Pull Request and pushes directly to the default branch. Defaults to false
-    required: false
-  BRANCH_PREFIX:
-    description: |
-      Specify a different prefix for the new branch in the target repo. Defaults to repo-sync/SOURCE_REPO_NAME
-    required: false
-  FORK:
-    description: |
-      Specify the user account that will be used in a fork and pull-request workflow. Defaults
-      false.
-    required: false
-
-outputs:
-  pull_request_urls:
-    description: 'The URLs to the created Pull Requests as an array'
-
-runs:
-  using: 'node24'
-  main: 'dist/index.js'
-
+name: Sync Workflows
+description: >-
+  Keeps a repository's copies of the workflows and workflow templates of a source repository up to
+  date, by opening one pull request and keeping it current.
+author: actions-fyi
 branding:
-  icon: 'git-pull-request'
-  color: 'gray-dark'
+  icon: refresh-cw
+  color: gray-dark
+# A composite action with a single github-script step that loads plain CommonJS modules from
+# src/: no npm dependencies, no build and no dist/. github-script's require resolves an absolute
+# path as is, and github.action_path, which only composite actions have, is this action's own
+# directory, wherever it was fetched to.
+#
+# It runs in the repository it updates. The workflow checks the source out first, and this reads
+# .github/workflows and workflow-templates from that checkout. A workflow of the repository is
+# updated when the source has a .yml or .yaml file of the same name; .github/workflows wins over
+# workflow-templates. In a template, $default-branch becomes the repository's default branch.
+# Nothing is added or removed, and no other file, such as actions.lock, is touched.
+#
+# Every input reaches the script through the step's env, never by interpolation into the script.
+#
+# Permissions github-token needs on the repository (none of them for a dry run, which only reads):
+#   contents: write, pull requests: write, workflows: write
+# The job's own GITHUB_TOKEN can't have the last one, so pass an app's token.
+inputs:
+  source-repository:
+    description: The source repository, owner/name. It names the source in the commit and the pull request.
+    required: true
+  source-path:
+    description: >-
+      The directory of the source's checkout, relative to GITHUB_WORKSPACE. It holds the source's
+      .github/workflows and workflow-templates.
+    required: false
+    default: "."
+  source-sha:
+    description: >-
+      The source commit that was checked out, e.g. the commit output of actions/checkout. The
+      commit and the pull request link to it. Empty links to the source's default branch.
+    required: false
+    default: ""
+  github-token:
+    description: The token that reads the repository, pushes the branch and opens the pull request.
+    required: false
+    default: ${{ github.token }}
+  branch:
+    description: >-
+      The branch of the pull request. It belongs to this action: each sync that finds a
+      difference rebuilds it from the default branch.
+    required: false
+    default: sync/workflows
+  title:
+    description: >-
+      The commit's subject and the pull request's title. Empty means "ci: sync workflows from
+      <source-repository>".
+    required: false
+    default: ""
+  exclude:
+    description: Workflow file names that are never synced, separated by newlines or commas.
+    required: false
+    default: ""
+  dry-run:
+    description: Report which copies differ, but make no changes on GitHub.
+    required: false
+    default: "false"
+outputs:
+  result:
+    description: >-
+      skipped, up-to-date, closed, created, updated, unchanged or dry-run; see src/main.js. Empty
+      means the step failed.
+    value: ${{ steps.sync.outputs.result }}
+  changed:
+    description: A JSON array of the workflow file names that differ from the source.
+    value: ${{ steps.sync.outputs.changed }}
+  pull-request-number:
+    description: The number of the sync pull request, or empty when there is none.
+    value: ${{ steps.sync.outputs.pull-request-number }}
+  pull-request-url:
+    description: The URL of the sync pull request, or empty when there is none.
+    value: ${{ steps.sync.outputs.pull-request-url }}
+runs:
+  using: composite
+  steps:
+    - name: Sync Workflows
+      id: sync
+      uses: actions/github-script@v9.0.0
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        SYNC_SOURCE_REPOSITORY: ${{ inputs.source-repository }}
+        SYNC_SOURCE_PATH: ${{ inputs.source-path }}
+        SYNC_SOURCE_SHA: ${{ inputs.source-sha }}
+        SYNC_BRANCH: ${{ inputs.branch }}
+        SYNC_TITLE: ${{ inputs.title }}
+        SYNC_EXCLUDE: ${{ inputs.exclude }}
+        SYNC_DRY_RUN: ${{ inputs.dry-run }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: return await require(process.env.ACTION_PATH + '/src/main.js')({ github, context, core })
