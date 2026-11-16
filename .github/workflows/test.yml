@@ -1,0 +1,40 @@
+name: Test
+# The unit tests, as Test / Unit, on pull requests and in the merge queue. They need no secret and
+# no live service: the source is a temporary directory and Octokit is mocked.
+on:
+  pull_request:
+  merge_group:
+
+permissions: {}
+
+# One run per pull request or merge group: a new push cancels the run of the one before.
+concurrency:
+  group: ${{ github.workflow_ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  unit:
+    name: Unit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # Check out the repository
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2.22.4
+        with:
+          egress-policy: audit
+      - name: Checkout Repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      # The Node version that actions/github-script v9 runs the action with.
+      - name: Set up Node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+      - name: Run Unit Tests
+        run: node --test test/*.test.js

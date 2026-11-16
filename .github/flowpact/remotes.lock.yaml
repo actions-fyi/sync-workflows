@@ -2,8 +2,8 @@
 # The interfaces of the remote reusable workflows and actions this repository uses, at the commit each resolved to.
 version: 1
 remotes:
-  actions-fyi/shared-workflows/.github/workflows/_actions-lock.yml@v1.1.0:
-    sha: bbfe525891fd9f362689ba91cf02889713a86fd5
+  actions-fyi/shared-workflows/.github/workflows/_actions-lock.yml@v1.2.0:
+    sha: 9c28dc1011cea6d3d171b1d981012e8b609ba9f4
     kind: workflow
     jobPermissions:
       changes:
@@ -13,8 +13,8 @@ remotes:
       fix:
         contents: read
         id-token: write
-  actions-fyi/shared-workflows/.github/workflows/_claude.yml@v1.1.0:
-    sha: bbfe525891fd9f362689ba91cf02889713a86fd5
+  actions-fyi/shared-workflows/.github/workflows/_claude.yml@v1.2.0:
+    sha: 9c28dc1011cea6d3d171b1d981012e8b609ba9f4
     kind: workflow
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
@@ -36,8 +36,8 @@ remotes:
         issues: write
         id-token: write
         actions: read
-  actions-fyi/shared-workflows/.github/workflows/_codeql.yml@v1.1.0:
-    sha: bbfe525891fd9f362689ba91cf02889713a86fd5
+  actions-fyi/shared-workflows/.github/workflows/_codeql.yml@v1.2.0:
+    sha: 9c28dc1011cea6d3d171b1d981012e8b609ba9f4
     kind: workflow
     inputs:
       languages:
@@ -53,8 +53,8 @@ remotes:
         actions: read
       results:
         id-token: write
-  actions-fyi/shared-workflows/.github/workflows/_explain.yml@v1.1.0:
-    sha: bbfe525891fd9f362689ba91cf02889713a86fd5
+  actions-fyi/shared-workflows/.github/workflows/_explain.yml@v1.2.0:
+    sha: 9c28dc1011cea6d3d171b1d981012e8b609ba9f4
     kind: workflow
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
@@ -74,19 +74,8 @@ remotes:
       resolve-report:
         issues: write
         pull-requests: write
-  actions-fyi/shared-workflows/.github/workflows/_file-sync.yml@v1.1.0:
-    sha: bbfe525891fd9f362689ba91cf02889713a86fd5
-    kind: workflow
-    inputs:
-      dry-run:
-        type: boolean
-        default: false
-    jobPermissions:
-      workflows:
-        contents: read
-        id-token: write
-  actions-fyi/shared-workflows/.github/workflows/_flowpact.yml@v1.1.0:
-    sha: bbfe525891fd9f362689ba91cf02889713a86fd5
+  actions-fyi/shared-workflows/.github/workflows/_flowpact.yml@v1.2.0:
+    sha: 9c28dc1011cea6d3d171b1d981012e8b609ba9f4
     kind: workflow
     jobPermissions:
       check:
@@ -100,15 +89,15 @@ remotes:
         id-token: write
       issue:
         issues: write
-  actions-fyi/shared-workflows/.github/workflows/_label-sync.yml@v1.1.0:
-    sha: bbfe525891fd9f362689ba91cf02889713a86fd5
+  actions-fyi/shared-workflows/.github/workflows/_label-sync.yml@v1.2.0:
+    sha: 9c28dc1011cea6d3d171b1d981012e8b609ba9f4
     kind: workflow
     jobPermissions:
       labels:
         contents: read
         issues: write
-  actions-fyi/shared-workflows/.github/workflows/_pr-metadata.yml@v1.1.0:
-    sha: bbfe525891fd9f362689ba91cf02889713a86fd5
+  actions-fyi/shared-workflows/.github/workflows/_pr-metadata.yml@v1.2.0:
+    sha: 9c28dc1011cea6d3d171b1d981012e8b609ba9f4
     kind: workflow
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
@@ -145,8 +134,8 @@ remotes:
         contents: read
       post-description:
         pull-requests: write
-  actions-fyi/shared-workflows/.github/workflows/_renovate.yml@v1.1.0:
-    sha: bbfe525891fd9f362689ba91cf02889713a86fd5
+  actions-fyi/shared-workflows/.github/workflows/_renovate.yml@v1.2.0:
+    sha: 9c28dc1011cea6d3d171b1d981012e8b609ba9f4
     kind: workflow
     jobPermissions:
       renovate:
@@ -156,8 +145,8 @@ remotes:
       fix:
         contents: read
         id-token: write
-  actions-fyi/shared-workflows/.github/workflows/_triage.yml@v1.1.0:
-    sha: bbfe525891fd9f362689ba91cf02889713a86fd5
+  actions-fyi/shared-workflows/.github/workflows/_triage.yml@v1.2.0:
+    sha: 9c28dc1011cea6d3d171b1d981012e8b609ba9f4
     kind: workflow
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
@@ -175,8 +164,8 @@ remotes:
         issues: read
       apply:
         issues: write
-  actions-fyi/shared-workflows/.github/workflows/_zizmor.yml@v1.1.0:
-    sha: bbfe525891fd9f362689ba91cf02889713a86fd5
+  actions-fyi/shared-workflows/.github/workflows/_zizmor.yml@v1.2.0:
+    sha: 9c28dc1011cea6d3d171b1d981012e8b609ba9f4
     kind: workflow
     inputs:
       zizmor-version:
@@ -187,3 +176,142 @@ remotes:
         security-events: write
         contents: read
         actions: read
+  actions/checkout@v7.0.1:
+    sha: 3d3c42e5aac5ba805825da76410c181273ba90b1
+    kind: action
+    using: node24
+    inputs:
+      repository:
+        default: ${{ github.repository }}
+      ref: {}
+      token:
+        default: ${{ github.token }}
+      ssh-key: {}
+      ssh-known-hosts: {}
+      ssh-strict:
+        default: true
+      ssh-user:
+        default: git
+      persist-credentials:
+        default: true
+      path: {}
+      clean:
+        default: true
+      filter: {}
+      sparse-checkout: {}
+      sparse-checkout-cone-mode:
+        default: true
+      fetch-depth:
+        default: 1
+      fetch-tags:
+        default: false
+      show-progress:
+        default: true
+      lfs:
+        default: false
+      submodules:
+        default: false
+      set-safe-directory:
+        default: true
+      github-server-url: {}
+      allow-unsafe-pr-checkout:
+        default: false
+    outputs:
+      - ref
+      - commit
+  actions/github-script@v9.0.0:
+    sha: 3a2844b7e9c422d3c10d287c895573f7108da1b3
+    kind: action
+    using: node24
+    inputs:
+      script:
+        required: true
+      github-token:
+        default: ${{ github.token }}
+      debug:
+        default: ${{ runner.debug == '1' }}
+      user-agent:
+        default: actions/github-script
+      previews: {}
+      result-encoding:
+        default: json
+      retries:
+        default: '0'
+      retry-exempt-status-codes:
+        default: 400,401,403,404,422
+      base-url: {}
+    outputs:
+      - result
+  actions/setup-node@v7.1.0:
+    sha: 949feb2413d6458794dcd2491c4babbbce0c15c1
+    kind: action
+    using: node24
+    inputs:
+      node-version: {}
+      node-version-file: {}
+      architecture: {}
+      check-latest:
+        default: false
+      registry-url: {}
+      scope: {}
+      token:
+        default: ${{ github.server_url == 'https://github.com' && github.token || '' }}
+      cache: {}
+      package-manager-cache:
+        default: true
+      cache-dependency-path: {}
+      mirror: {}
+      mirror-token: {}
+    outputs:
+      - cache-hit
+      - cache-primary-key
+      - cache-matched-key
+      - node-version
+  step-security/harden-runner@v2.22.4:
+    sha: 1d88384fd173af6ecb012dfd0264a306b711241a
+    kind: action
+    using: node24
+    inputs:
+      allowed-endpoints:
+        default: ''
+      denied-endpoints:
+        default: ''
+      egress-policy:
+        default: block
+      token:
+        default: ${{ github.token }}
+      disable-telemetry:
+        default: 'false'
+      disable-sudo:
+        default: 'false'
+      disable-sudo-and-containers:
+        default: 'false'
+      disable-file-monitoring:
+        default: 'false'
+      policy:
+        default: ''
+      api-key:
+        default: ''
+      use-policy-store:
+        default: 'false'
+      deploy-on-self-hosted-vm:
+        default: 'false'
+      customer:
+        default: ''
+      server-name:
+        default: ''
+  step-security/octo-sts-action@v1.1.1:
+    sha: 9719306bce0808715a4de71515c7cdcbc560c38b
+    kind: action
+    using: node24
+    inputs:
+      domain:
+        default: octo-sts.dev
+      scheme:
+        default: https
+      scope:
+        required: true
+      identity:
+        required: true
+    outputs:
+      - token

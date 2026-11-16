@@ -1,0 +1,97 @@
+name: Sync Workflows
+description: >-
+  Keeps a repository's copies of the workflows and workflow templates of a source repository up to
+  date, by opening one pull request and keeping it current.
+author: actions-fyi
+branding:
+  icon: refresh-cw
+  color: gray-dark
+# A composite action with a single github-script step that loads plain CommonJS modules from
+# src/: no npm dependencies, no build and no dist/. github-script's require resolves an absolute
+# path as is, and github.action_path, which only composite actions have, is this action's own
+# directory, wherever it was fetched to.
+#
+# It runs in the repository it updates. The workflow checks the source out first, and this reads
+# .github/workflows and workflow-templates from that checkout. A workflow of the repository is
+# updated when the source has a .yml or .yaml file of the same name; .github/workflows wins over
+# workflow-templates. In a template, $default-branch becomes the repository's default branch.
+# Nothing is added or removed, and no other file, such as actions.lock, is touched.
+#
+# Every input reaches the script through the step's env, never by interpolation into the script.
+#
+# Permissions github-token needs on the repository (none of them for a dry run, which only reads):
+#   contents: write, pull requests: write, workflows: write
+# The job's own GITHUB_TOKEN can't have the last one, so pass an app's token.
+inputs:
+  source-repository:
+    description: The source repository, owner/name. It names the source in the commit and the pull request.
+    required: true
+  source-path:
+    description: >-
+      The directory of the source's checkout, relative to GITHUB_WORKSPACE. It holds the source's
+      .github/workflows and workflow-templates.
+    required: false
+    default: "."
+  source-sha:
+    description: >-
+      The source commit that was checked out, e.g. the commit output of actions/checkout. The
+      commit and the pull request link to it. Empty links to the source's default branch.
+    required: false
+    default: ""
+  github-token:
+    description: The token that reads the repository, pushes the branch and opens the pull request.
+    required: false
+    default: ${{ github.token }}
+  branch:
+    description: >-
+      The branch of the pull request. It belongs to this action: each sync that finds a
+      difference rebuilds it from the default branch.
+    required: false
+    default: sync/workflows
+  title:
+    description: >-
+      The commit's subject and the pull request's title. Empty means "ci: sync workflows from
+      <source-repository>".
+    required: false
+    default: ""
+  exclude:
+    description: Workflow file names that are never synced, separated by newlines or commas.
+    required: false
+    default: ""
+  dry-run:
+    description: Report which copies differ, but make no changes on GitHub.
+    required: false
+    default: "false"
+outputs:
+  result:
+    description: >-
+      skipped, up-to-date, closed, created, updated, unchanged or dry-run; see src/main.js. Empty
+      means the step failed.
+    value: ${{ steps.sync.outputs.result }}
+  changed:
+    description: A JSON array of the workflow file names that differ from the source.
+    value: ${{ steps.sync.outputs.changed }}
+  pull-request-number:
+    description: The number of the sync pull request, or empty when there is none.
+    value: ${{ steps.sync.outputs.pull-request-number }}
+  pull-request-url:
+    description: The URL of the sync pull request, or empty when there is none.
+    value: ${{ steps.sync.outputs.pull-request-url }}
+runs:
+  using: composite
+  steps:
+    - name: Sync Workflows
+      id: sync
+      uses: actions/github-script@v9.0.0
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        SYNC_SOURCE_REPOSITORY: ${{ inputs.source-repository }}
+        SYNC_SOURCE_PATH: ${{ inputs.source-path }}
+        SYNC_SOURCE_SHA: ${{ inputs.source-sha }}
+        SYNC_BRANCH: ${{ inputs.branch }}
+        SYNC_TITLE: ${{ inputs.title }}
+        SYNC_EXCLUDE: ${{ inputs.exclude }}
+        SYNC_DRY_RUN: ${{ inputs.dry-run }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: return await require(process.env.ACTION_PATH + '/src/main.js')({ github, context, core })

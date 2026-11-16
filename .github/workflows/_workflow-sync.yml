@@ -1,0 +1,112 @@
+name: Sync
+# A reusable workflow around this repository's action, for the actions-fyi org: it keeps a
+# repository's copies of the workflows and workflow templates of actions-fyi/.github up to date.
+# Its caller, workflow-sync.yml of actions-fyi/.github, is distributed to the org's repositories like
+# the other callers there, and runs in each of them. It runs as part of the caller's run, in that
+# repository's context: the caller's event and token.
+#
+# The _ prefix marks a shared workflow: called only with workflow_call, never by events or rulesets.
+#
+# A repository pulls; nothing is pushed to it. The caller runs daily, on demand, and when
+# _workflow-sync-dispatch.yml sends it a repository_dispatch event after a push to the source. That
+# event only says "sync now": its payload is never read, and the source is always the default
+# branch of actions-fyi/.github.
+#
+# What the workflows job does:
+# - Checks out .github/workflows and workflow-templates of actions-fyi/.github, the source.
+# - Runs this repository's action, which compares the repository's workflows with the source's
+#   by file name. Only .yml and .yaml copies the repository already has are updated: a workflow
+#   it doesn't have is never added, one only it has is never touched, and actions.lock is never
+#   synced. A name in both source directories is taken from .github/workflows. In a workflow
+#   template, $default-branch becomes the repository's default branch.
+# - When a copy differs, the action opens one pull request, or overwrites the branch of the one
+#   that is still open. Nothing is pushed to the default branch, so the repository's own checks
+#   run on the change, and its lockfile fix job updates actions.lock on the pull request.
+#
+# The action runs with `uses: $/`, which resolves to this repository at the commit this workflow
+# runs at, wherever it was called from. `./` would resolve to the caller's checkout instead.
+#
+# The pull request needs a token that can write contents, pull requests and workflow files, which
+# the job's own token can't: it comes from Octo STS, identity workflow-sync, whose trust policy is
+# .github/chainguard/workflow-sync.sts.yaml of actions-fyi/.github. The policy trusts this file by
+# its job_workflow_ref, so the file must keep this name and path. Without that policy the job
+# fails with an error that says so.
+#
+# It skips itself in actions-fyi/.github, the source, and in actions-fyi/shared-workflows, whose
+# callers of the same file names call their siblings with `$/` and must not be replaced. For the
+# same reason this repository's own workflow-sync.yml is excluded here.
+#
+# The calling job must grant what the workflows job declares, or the call fails before anything
+# runs:
+#   contents: read   # declared for the job; the source is public and read without credentials
+#   id-token: write  # exchange the job's OIDC token with Octo STS
+on:
+  workflow_call:
+    inputs:
+      dry-run:
+        description: >-
+          Report which copies differ without pushing a branch or opening a pull request.
+        type: boolean
+        required: false
+        default: false
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  workflows:
+    name: Workflows
+    if: >-
+      github.repository != 'actions-fyi/.github'
+      && github.repository != 'actions-fyi/shared-workflows'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # One run per repository at a time; a second one waits, so two never update the same pull
+    # request at once.
+    concurrency:
+      group: workflow-sync-${{ github.repository }}
+    permissions:
+      contents: read # Declared for the job; the source is public
+      id-token: write # Exchange the job's OIDC token with Octo STS
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2.22.4
+        with:
+          egress-policy: audit
+      - name: Checkout Source
+        id: source
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: actions-fyi/.github
+          ref: main
+          path: source
+          sparse-checkout: |
+            .github/workflows
+            workflow-templates
+          persist-credentials: false
+      - name: Get Sync Token
+        id: sts
+        continue-on-error: true
+        uses: step-security/octo-sts-action@v1.1.1
+        with:
+          scope: ${{ github.repository_owner }}
+          identity: workflow-sync
+      - name: Report Missing Sync Token
+        if: steps.sts.outcome != 'success'
+        run: |
+          echo "::error::Octo STS granted no token to sync the workflows. Check the trust policy .github/chainguard/workflow-sync.sts.yaml of actions-fyi/.github."
+          exit 1
+      # The default title starts with a Conventional Commits type, which the org's title check
+      # requires.
+      - name: Sync Workflows
+        uses: $/
+        with:
+          source-repository: actions-fyi/.github
+          source-path: source
+          source-sha: ${{ steps.source.outputs.commit }}
+          github-token: ${{ steps.sts.outputs.token }}
+          exclude: ${{ github.repository == 'actions-fyi/sync-workflows' && 'workflow-sync.yml' || '' }}
+          dry-run: ${{ inputs.dry-run }}

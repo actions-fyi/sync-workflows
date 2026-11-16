@@ -1,0 +1,85 @@
+name: Dispatch Sync
+# A reusable workflow for the source, actions-fyi/.github: its caller there runs it on pushes to
+# main that change a workflow or a workflow template, and it tells the org's repositories to sync
+# now, so a change doesn't wait for their daily run. See _workflow-sync.yml for the sync itself.
+#
+# The _ prefix marks a shared workflow: called only with workflow_call, never by events or rulesets.
+#
+# It sends a repository_dispatch event of type workflow-sync to every repository of the org that the
+# Octo STS app is installed on, except the source and archived ones. The caller workflow-sync.yml in
+# a repository listens for that type; a repository without it ignores the event. No list of
+# repositories is kept anywhere. The event carries no payload: a listener always reads the
+# source's default branch, so whoever can send the event can only make a sync run early.
+#
+# Sending the event needs contents write on each repository, which the job's own token doesn't
+# have outside its repository: the token comes from Octo STS, identity workflow-sync-dispatch, whose
+# trust policy is .github/chainguard/workflow-sync-dispatch.sts.yaml of actions-fyi/.github. The
+# policy trusts this file by its job_workflow_ref, so the file must keep this name and path.
+#
+# A repository the event couldn't be sent to fails the job after the others were tried. It still
+# syncs at its next daily run.
+#
+# The calling job must grant what the dispatch job declares, or the call fails before anything
+# runs:
+#   id-token: write  # exchange the job's OIDC token with Octo STS
+on:
+  workflow_call:
+    inputs:
+      event-type:
+        description: The repository_dispatch event type that the callers of _workflow-sync.yml listen for.
+        type: string
+        required: false
+        default: workflow-sync
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  dispatch:
+    name: Dispatch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write # Exchange the job's OIDC token with Octo STS
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2.22.4
+        with:
+          egress-policy: audit
+      - name: Get Dispatch Token
+        id: sts
+        continue-on-error: true
+        uses: step-security/octo-sts-action@v1.1.1
+        with:
+          scope: ${{ github.repository_owner }}
+          identity: workflow-sync-dispatch
+      - name: Report Missing Dispatch Token
+        if: steps.sts.outcome != 'success'
+        run: |
+          echo "::error::Octo STS granted no token to send the events. Check the trust policy .github/chainguard/workflow-sync-dispatch.sts.yaml of actions-fyi/.github."
+          exit 1
+      - name: Send Events
+        env:
+          GH_TOKEN: ${{ steps.sts.outputs.token }}
+          SOURCE: ${{ github.repository }}
+          EVENT_TYPE: ${{ inputs.event-type }}
+        run: |
+          repositories="$RUNNER_TEMP/repositories.txt"
+          gh api installation/repositories --paginate \
+            --jq '.repositories[] | select(.archived | not) | .full_name' > "$repositories"
+          sent=0
+          failed=0
+          while IFS= read -r repository; do
+            [[ "$repository" == "$SOURCE" ]] && continue
+            if gh api -X POST "repos/$repository/dispatches" -f "event_type=$EVENT_TYPE" --silent; then
+              sent=$((sent + 1))
+            else
+              echo "::error::Could not send $EVENT_TYPE to $repository."
+              failed=$((failed + 1))
+            fi
+          done < "$repositories"
+          echo "::notice::Sent $EVENT_TYPE to $sent repositories; $failed failed."
+          (( failed == 0 ))
