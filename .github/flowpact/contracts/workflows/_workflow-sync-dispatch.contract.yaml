@@ -15,4 +15,8 @@ interface:
       default: workflow-sync
       description: The repository_dispatch event type that the callers of _workflow-sync.yml listen for.
   outputs: {}
-consumers: []
+consumers:
+  - from: .github/workflows/workflow-sync-dispatch.yml
+    job: dispatch
+    passes: []
+    reads: []
