@@ -59096,12 +59096,8 @@ class Git {
 
 				core.debug(`Created new branch ${ this.prBranch }`)
 			} catch (error) {
-				// The branch exists when a sync pull request is still open, or was closed without
-				// deleting it: keep going, the ref is force-updated below. Octokit appends the
-				// documentation URL to the message, so it can't be compared for equality.
-				const exists = error.status === 422 && /Reference already exists/.test(error.message)
-				if (!exists) throw error
-				core.debug(`Branch ${ this.prBranch } already exists, it will be force-updated`)
+				// If the branch exists ignores the error
+				if (error.message !== 'Reference already exists') throw error
 			}
 		}
 
