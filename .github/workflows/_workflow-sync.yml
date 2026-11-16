@@ -49,13 +49,6 @@ on:
         type: boolean
         required: false
         default: false
-    outputs:
-      result:
-        description: What the sync did; see the action's result output. Empty if the job failed or was skipped.
-        value: ${{ jobs.workflows.outputs.result }}
-      pull-request-url:
-        description: The URL of the sync pull request, or empty when there is none.
-        value: ${{ jobs.workflows.outputs.pull-request-url }}
 
 permissions: {}
 
@@ -78,9 +71,6 @@ jobs:
     permissions:
       contents: read # Declared for the job; the source is public
       id-token: write # Exchange the job's OIDC token with Octo STS
-    outputs:
-      result: ${{ steps.sync.outputs.result }}
-      pull-request-url: ${{ steps.sync.outputs.pull-request-url }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@v2.22.4
@@ -112,7 +102,6 @@ jobs:
       # The default title starts with a Conventional Commits type, which the org's title check
       # requires.
       - name: Sync Workflows
-        id: sync
         uses: $/
         with:
           source-repository: actions-fyi/.github
