@@ -3,10 +3,10 @@
 # Docs: https://gh.io/actions-lockfile
 version: 'v0.0.3'
 workflows:
-    '.github/workflows/_file-sync-dispatch.yml':
+    '.github/workflows/_workflow-sync-dispatch.yml':
         - 'step-security/harden-runner@v2.22.4'
         - 'step-security/octo-sts-action@v1.1.1'
-    '.github/workflows/_file-sync.yml':
+    '.github/workflows/_workflow-sync.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/github-script@v9.0.0'
         - 'step-security/harden-runner@v2.22.4'
@@ -16,7 +16,6 @@ workflows:
     '.github/workflows/auto-label.yml': []
     '.github/workflows/claude.yml': []
     '.github/workflows/codeql.yml': []
-    '.github/workflows/file-sync.yml': []
     '.github/workflows/flowpact.yml': []
     '.github/workflows/label-sync.yml': []
     '.github/workflows/pr-metadata.yml': []
@@ -25,6 +24,7 @@ workflows:
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
         - 'step-security/harden-runner@v2.22.4'
+    '.github/workflows/workflow-sync.yml': []
     '.github/workflows/zizmor.yml': []
 dependencies:
     'actions/checkout@v7.0.1':
