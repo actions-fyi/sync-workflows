@@ -87,7 +87,7 @@ in `src/`: no npm dependencies, no build, no `dist/`. Run the tests with `node -
 
 Two shared workflows here wrap the action for the org, with `actions-fyi/.github` as the source.
 
-**`_file-sync.yml`** runs the sync in the calling repository. Its caller, `file-sync.yml`, lives in
+**`_workflow-sync.yml`** runs the sync in the calling repository. Its caller, `workflow-sync.yml`, lives in
 `actions-fyi/.github` and is itself one of the synced workflows:
 
 ```yaml
@@ -95,7 +95,7 @@ on:
   schedule:
     - cron: "43 3 * * *"
   repository_dispatch:
-    types: [file-sync]
+    types: [workflow-sync]
   workflow_dispatch:
     inputs:
       dry-run:
@@ -107,12 +107,12 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: actions-fyi/sync-workflows/.github/workflows/_file-sync.yml@v1.0.0
+    uses: actions-fyi/sync-workflows/.github/workflows/_workflow-sync.yml@v1.0.0
     with:
       dry-run: ${{ inputs.dry-run || false }}
 ```
 
-**`_file-sync-dispatch.yml`** sends the `file-sync` event to the org's repositories, so a change to
+**`_workflow-sync-dispatch.yml`** sends the `workflow-sync` event to the org's repositories, so a change to
 the source doesn't wait for their daily run. Its caller lives only in `actions-fyi/.github`:
 
 ```yaml
@@ -129,7 +129,7 @@ jobs:
   dispatch:
     permissions:
       id-token: write
-    uses: actions-fyi/sync-workflows/.github/workflows/_file-sync-dispatch.yml@v1.0.0
+    uses: actions-fyi/sync-workflows/.github/workflows/_workflow-sync-dispatch.yml@v1.0.0
 ```
 
 Both get their token from Octo STS, whose trust policies are in `.github/chainguard` of
@@ -137,15 +137,9 @@ Both get their token from Octo STS, whose trust policies are in `.github/chaingu
 
 | Identity | Trusts | Permissions |
 | --- | --- | --- |
-| `file-sync` | `_file-sync.yml` of this repository, called from any repository's default branch | contents, pull requests, workflows: write |
-| `file-sync-dispatch` | `_file-sync-dispatch.yml` of this repository, called from the default branch of `actions-fyi/.github` | contents: write |
+| `workflow-sync` | `_workflow-sync.yml` of this repository, called from any repository's default branch | contents, pull requests, workflows: write |
+| `workflow-sync-dispatch` | `_workflow-sync-dispatch.yml` of this repository, called from the default branch of `actions-fyi/.github` | contents: write |
 
-This repository's own `file-sync.yml` calls `_file-sync.yml` with `$/`, so there the workflow runs
-from `refs/heads/main`, not from a tag; the `file-sync` policy has to accept that ref for this
+This repository's own `workflow-sync.yml` calls `_workflow-sync.yml` with `$/`, so there the workflow runs
+from `refs/heads/main`, not from a tag; the `workflow-sync` policy has to accept that ref for this
 repository to sync itself.
-
-## Origin
-
-This began as a fork of [step-security/repo-file-sync-action](https://github.com/step-security/repo-file-sync-action),
-itself a fork of [BetaHuhn/repo-file-sync-action](https://github.com/BetaHuhn/repo-file-sync-action), and
-was rewritten for this one job. See [LICENSE](LICENSE).

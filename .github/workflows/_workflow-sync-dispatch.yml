@@ -1,19 +1,19 @@
 name: Dispatch Sync
 # A reusable workflow for the source, actions-fyi/.github: its caller there runs it on pushes to
 # main that change a workflow or a workflow template, and it tells the org's repositories to sync
-# now, so a change doesn't wait for their daily run. See _file-sync.yml for the sync itself.
+# now, so a change doesn't wait for their daily run. See _workflow-sync.yml for the sync itself.
 #
 # The _ prefix marks a shared workflow: called only with workflow_call, never by events or rulesets.
 #
-# It sends a repository_dispatch event of type file-sync to every repository of the org that the
-# Octo STS app is installed on, except the source and archived ones. The caller file-sync.yml in
+# It sends a repository_dispatch event of type workflow-sync to every repository of the org that the
+# Octo STS app is installed on, except the source and archived ones. The caller workflow-sync.yml in
 # a repository listens for that type; a repository without it ignores the event. No list of
 # repositories is kept anywhere. The event carries no payload: a listener always reads the
 # source's default branch, so whoever can send the event can only make a sync run early.
 #
 # Sending the event needs contents write on each repository, which the job's own token doesn't
-# have outside its repository: the token comes from Octo STS, identity file-sync-dispatch, whose
-# trust policy is .github/chainguard/file-sync-dispatch.sts.yaml of actions-fyi/.github. The
+# have outside its repository: the token comes from Octo STS, identity workflow-sync-dispatch, whose
+# trust policy is .github/chainguard/workflow-sync-dispatch.sts.yaml of actions-fyi/.github. The
 # policy trusts this file by its job_workflow_ref, so the file must keep this name and path.
 #
 # A repository the event couldn't be sent to fails the job after the others were tried. It still
@@ -26,10 +26,10 @@ on:
   workflow_call:
     inputs:
       event-type:
-        description: The repository_dispatch event type that the callers of _file-sync.yml listen for.
+        description: The repository_dispatch event type that the callers of _workflow-sync.yml listen for.
         type: string
         required: false
-        default: file-sync
+        default: workflow-sync
 
 permissions: {}
 
@@ -55,11 +55,11 @@ jobs:
         uses: step-security/octo-sts-action@v1.1.1
         with:
           scope: ${{ github.repository_owner }}
-          identity: file-sync-dispatch
+          identity: workflow-sync-dispatch
       - name: Report Missing Dispatch Token
         if: steps.sts.outcome != 'success'
         run: |
-          echo "::error::Octo STS granted no token to send the events. Check the trust policy .github/chainguard/file-sync-dispatch.sts.yaml of actions-fyi/.github."
+          echo "::error::Octo STS granted no token to send the events. Check the trust policy .github/chainguard/workflow-sync-dispatch.sts.yaml of actions-fyi/.github."
           exit 1
       - name: Send Events
         env:

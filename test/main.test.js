@@ -161,8 +161,8 @@ test('a dry run reports the copies that differ and writes nothing', async (t) =>
 });
 
 test('excluded names, and a repository without workflows, are not synced', async (t) => {
-  const excluded = mockGithub({ files: { [`${W}/file-sync.yml`]: 'local\n' } });
-  assert.equal((await run(t, { github: excluded, source: { [`${W}/file-sync.yml`]: 'remote\n' }, SYNC_EXCLUDE: 'file-sync.yml' })).result, 'up-to-date');
+  const excluded = mockGithub({ files: { [`${W}/workflow-sync.yml`]: 'local\n' } });
+  assert.equal((await run(t, { github: excluded, source: { [`${W}/workflow-sync.yml`]: 'remote\n' }, SYNC_EXCLUDE: 'workflow-sync.yml' })).result, 'up-to-date');
   const empty = mockGithub({ files: { 'README.md': 'hello\n' } });
   assert.equal((await run(t, { github: empty, source: { [`${W}/codeql.yml`]: 'v2\n' } })).result, 'up-to-date');
 });
