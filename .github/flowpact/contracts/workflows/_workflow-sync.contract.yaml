@@ -3,7 +3,7 @@
 $schema: https://ciatlas.github.io/flowpact/schemas/contract/v1.json
 version: 1
 kind: workflow
-path: .github/workflows/_file-sync.yml
+path: .github/workflows/_workflow-sync.yml
 name: Sync
 triggers:
   - workflow_call
@@ -27,13 +27,13 @@ uses:
     uses: .
     with:
       dry-run: ${{ inputs.dry-run }}
-      exclude: ${{ github.repository == 'actions-fyi/sync-workflows' && 'file-sync.yml' || '' }}
+      exclude: ${{ github.repository == 'actions-fyi/sync-workflows' && 'workflow-sync.yml' || '' }}
       github-token: ${{ steps.sts.outputs.token }}
       source-path: source
       source-repository: actions-fyi/.github
       source-sha: ${{ steps.source.outputs.commit }}
 consumers:
-  - from: .github/workflows/file-sync.yml
+  - from: .github/workflows/workflow-sync.yml
     job: workflows
     passes:
       - dry-run

@@ -52,7 +52,7 @@ interface:
       description: skipped, up-to-date, closed, created, updated, unchanged or dry-run; see src/main.js. Empty means the step failed.
       value: ${{ steps.sync.outputs.result }}
 consumers:
-  - from: .github/workflows/_file-sync.yml
+  - from: .github/workflows/_workflow-sync.yml
     job: workflows
     step: sync
     passes:

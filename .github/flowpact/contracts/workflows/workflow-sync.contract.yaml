@@ -3,7 +3,7 @@
 $schema: https://ciatlas.github.io/flowpact/schemas/contract/v1.json
 version: 1
 kind: workflow
-path: .github/workflows/file-sync.yml
+path: .github/workflows/workflow-sync.yml
 name: Sync
 triggers:
   - repository_dispatch
@@ -20,7 +20,7 @@ interface:
   outputs: {}
 calls:
   - job: workflows
-    uses: .github/workflows/_file-sync.yml
+    uses: .github/workflows/_workflow-sync.yml
     with:
       dry-run: ${{ inputs.dry-run || false }}
 consumers: []

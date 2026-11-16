@@ -3,7 +3,7 @@
 $schema: https://ciatlas.github.io/flowpact/schemas/contract/v1.json
 version: 1
 kind: workflow
-path: .github/workflows/_file-sync-dispatch.yml
+path: .github/workflows/_workflow-sync-dispatch.yml
 name: Dispatch Sync
 triggers:
   - workflow_call
@@ -12,7 +12,7 @@ interface:
     event-type:
       type: string
       required: false
-      default: file-sync
-      description: The repository_dispatch event type that the callers of _file-sync.yml listen for.
+      default: workflow-sync
+      description: The repository_dispatch event type that the callers of _workflow-sync.yml listen for.
   outputs: {}
 consumers: []
