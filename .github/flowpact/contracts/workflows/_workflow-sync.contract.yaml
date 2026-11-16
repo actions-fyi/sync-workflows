@@ -14,16 +14,10 @@ interface:
       required: false
       default: false
       description: Report which copies differ without pushing a branch or opening a pull request.
-  outputs:
-    pull-request-url:
-      description: The URL of the sync pull request, or empty when there is none.
-      value: ${{ jobs.workflows.outputs.pull-request-url }}
-    result:
-      description: What the sync did; see the action's result output. Empty if the job failed or was skipped.
-      value: ${{ jobs.workflows.outputs.result }}
+  outputs: {}
 uses:
   - job: workflows
-    step: sync
+    step: '#5'
     uses: .
     with:
       dry-run: ${{ inputs.dry-run }}

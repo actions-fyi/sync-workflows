@@ -54,7 +54,7 @@ interface:
 consumers:
   - from: .github/workflows/_workflow-sync.yml
     job: workflows
-    step: sync
+    step: '#5'
     passes:
       - dry-run
       - exclude
@@ -62,6 +62,4 @@ consumers:
       - source-path
       - source-repository
       - source-sha
-    reads:
-      - pull-request-url
-      - result
+    reads: []
