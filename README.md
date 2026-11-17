@@ -25,6 +25,11 @@ The rules:
 - A template that uses `$protected-branches`, `$cron-daily` or `$cron-weekly` is skipped with a
   warning: those have no single right value to compare a copy with.
 - A copy is compared as a whole, so a local edit to it is reverted by the next sync.
+- With `ignore-versions`, a copy that differs only in the versions it references is left as it
+  is: the ref of a `uses:`, with a version comment after it, and the value on the line after a
+  `# renovate:` annotation. Renovate updates those, so a sync of nothing else would duplicate its
+  pull request. Such a copy counts as matching. A copy that differs in anything else is replaced
+  by the source's, versions included.
 
 ## The pull request
 
@@ -77,6 +82,7 @@ The token needs contents, pull requests and workflows write on the repository. T
 | `title` | `ci: sync workflows from <source-repository>` | The commit subject and pull request title. |
 | `exclude` | | File names never synced, separated by newlines or commas. |
 | `remove` | | File names the source retired, removed where a copy is left. |
+| `ignore-versions` | `false` | Leave copies that differ only in the versions they reference. |
 | `dry-run` | `false` | Report the copies that differ, change nothing. |
 
 | Output | |

@@ -268,3 +268,63 @@ test('remove only takes workflow file names', async (t) => {
   }
   assert.deepEqual(writes(github), []);
 });
+
+const caller = (ref, extra = '') => `jobs:\n  zizmor:\n    uses: acme/shared/.github/workflows/_zizmor.yml@${ref}\n${extra}`;
+
+test('a copy that differs only in versions opens no pull request with ignore-versions', async (t) => {
+  const github = mockGithub({ files: { [`${W}/zizmor.yml`]: caller('v1.2.0') } });
+  const source = { [`${W}/zizmor.yml`]: caller('v2.0.0') };
+  const ignored = await run(t, { github, source, SYNC_IGNORE_VERSIONS: 'true' });
+  assert.equal(ignored.result, 'up-to-date');
+  assert.equal(ignored.core.outputs.changed, '[]');
+  assert.deepEqual(writes(github), []);
+  assert.match(ignored.core.logs.join('\n'), /zizmor\.yml differ from the source only in the versions they reference/);
+  // Without the input, a version is a difference like any other.
+  const synced = await run(t, { github, source });
+  assert.equal(synced.result, 'created');
+  assert.equal(synced.core.outputs.changed, '["zizmor.yml"]');
+});
+
+test('a copy that differs in more than versions is replaced, versions included; a version-only one is left', async (t) => {
+  const github = mockGithub({ files: { [`${W}/zizmor.yml`]: caller('v1.2.0'), [`${W}/codeql.yml`]: caller('v1.2.0') } });
+  const source = { [`${W}/zizmor.yml`]: caller('v2.0.0', '    with:\n      persona: pedantic\n'), [`${W}/codeql.yml`]: caller('v2.0.0') };
+  const { result, core } = await run(t, { github, source, SYNC_IGNORE_VERSIONS: 'true' });
+  assert.equal(result, 'created');
+  assert.equal(core.outputs.changed, '["zizmor.yml"]');
+  assert.deepEqual(github.calls[0].paths, [`${W}/zizmor.yml`]);
+  assert.deepEqual(github.filesAt('sync/workflows'), {
+    [`${W}/zizmor.yml`]: caller('v2.0.0', '    with:\n      persona: pedantic\n'),
+    [`${W}/codeql.yml`]: caller('v1.2.0'),
+  });
+  assert.match(github.pulls[0].body, /Not updated: `codeql\.yml` differs from the source only in the versions it references, which Renovate updates\./);
+  // The next run leaves the pull request alone, although codeql.yml still differs.
+  const before = github.calls.length;
+  const again = await run(t, { github, source, SYNC_IGNORE_VERSIONS: 'true' });
+  assert.equal(again.result, 'unchanged');
+  assert.equal(github.calls.length, before);
+});
+
+test('the open pull request is closed once only versions differ', async (t) => {
+  const github = mockGithub({ files: { [`${W}/zizmor.yml`]: caller('v1.2.0') } });
+  const source = { [`${W}/zizmor.yml`]: caller('v2.0.0', '    with:\n      persona: pedantic\n') };
+  await run(t, { github, source, SYNC_IGNORE_VERSIONS: 'true' });
+  assert.equal(github.pulls[0].state, 'open');
+  // The same change reaches the default branch another way, at an older version.
+  github.push('main', { [`${W}/zizmor.yml`]: caller('v1.9.0', '    with:\n      persona: pedantic\n') });
+  const { result } = await run(t, { github, source, SYNC_IGNORE_VERSIONS: 'true' });
+  assert.equal(result, 'closed');
+  assert.equal(github.pulls[0].state, 'closed');
+  assert.equal(github.refs.has('sync/workflows'), false);
+  assert.match(github.comments[0].body, /differ from acme\/\.github only in the versions they reference, which Renovate updates/);
+});
+
+test('an open pull request is rebuilt when a copy it leaves alone changed on the default branch', async (t) => {
+  const github = mockGithub({ files: { [`${W}/zizmor.yml`]: caller('v1.2.0'), [`${W}/codeql.yml`]: caller('v1.2.0') } });
+  const source = { [`${W}/zizmor.yml`]: caller('v2.0.0', '    with:\n      a: b\n'), [`${W}/codeql.yml`]: caller('v2.0.0') };
+  await run(t, { github, source, SYNC_IGNORE_VERSIONS: 'true' });
+  // Renovate's update of codeql.yml is merged.
+  github.push('main', { [`${W}/codeql.yml`]: caller('v1.3.0') });
+  const { result } = await run(t, { github, source, SYNC_IGNORE_VERSIONS: 'true' });
+  assert.equal(result, 'updated');
+  assert.equal(github.filesAt('sync/workflows')[`${W}/codeql.yml`], caller('v1.3.0'));
+});

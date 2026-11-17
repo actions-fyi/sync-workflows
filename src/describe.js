@@ -31,7 +31,7 @@ function count(diff) {
   return diff ? `+${diff.added} −${diff.removed}` : 'too large to compare';
 }
 
-function pullRequestBody(inputs, { defaultBranch, changes, removals = [], collisions }) {
+function pullRequestBody(inputs, { defaultBranch, changes, removals = [], versionOnly = [], collisions }) {
   const { sourceRepository, sourceSha, serverUrl, runId } = inputs;
   const sourceUrl = `${serverUrl}/${sourceRepository}`;
   const ref = sourceSha || 'HEAD';
@@ -71,6 +71,10 @@ function pullRequestBody(inputs, { defaultBranch, changes, removals = [], collis
     '',
     `Only \`.yml\` and \`.yaml\` workflows that this repository already has, under the same file name as in the source, are updated. No workflow is added, one is removed only when the source retired it, and \`actions.lock\` is not synced.`,
   );
+  if (versionOnly.length) {
+    const names = versionOnly.map((name) => `\`${name}\``).join(', ');
+    out.push('', `Not updated: ${names} ${versionOnly.length === 1 ? 'differs' : 'differ'} from the source only in the versions ${versionOnly.length === 1 ? 'it references' : 'they reference'}, which Renovate updates.`);
+  }
   if (collisions.length) {
     const names = collisions.map((name) => `\`${name}\``).join(', ');
     out.push('', `The source has ${names} in both \`.github/workflows\` and \`workflow-templates\`; the one in \`.github/workflows\` was used.`);
