@@ -17,7 +17,10 @@ The rules:
 
 - Only `.yml` and `.yaml` files are synced. `actions.lock`, a template's `.properties.json` and
   every other file are never read or written.
-- Only copies the repository already has are updated. No workflow is added or removed.
+- Only copies the repository already has are updated. No workflow is added.
+- A workflow is removed only when `remove` names it and the source no longer has it. That is how
+  a workflow the source retired leaves the repositories that still have a copy. A name the source
+  still has is kept, with a warning, and an excluded name is never touched.
 - A name in both source directories is taken from `.github/workflows`, with a warning.
 - A template that uses `$protected-branches`, `$cron-daily` or `$cron-weekly` is skipped with a
   warning: those have no single right value to compare a copy with.
@@ -25,19 +28,20 @@ The rules:
 
 ## The pull request
 
-When a copy differs, the action commits the new contents on top of the default branch and points
-its branch, `sync/workflows`, at that commit.
+When a copy differs, or a retired workflow is left, the action commits the new contents and the
+removals on top of the default branch and points its branch, `sync/workflows`, at that commit.
 
 - With no open pull request, it opens one. A branch left behind by a closed one is overwritten.
 - With an open pull request, it overwrites the branch and rewrites the description.
-- If the open pull request's branch already has every copy as it should be, nothing is written, so
-  its checks don't restart and commits added to it, such as a lockfile fix, stay.
-- Once the default branch matches the source, the open pull request is closed and its branch
-  deleted.
+- If the open pull request's branch already has every copy as it should be and no retired
+  workflow, nothing is written, so its checks don't restart and commits added to it, such as a
+  lockfile fix, stay.
+- Once the default branch matches the source and has no retired workflow, the open pull request
+  is closed and its branch deleted.
 
 The commit and the pull request are titled `ci: sync workflows from <source>`. The description
 links the source commit, lists each workflow with the file it came from and its changed line
-counts, and shows each diff.
+counts, shows each diff, and names the retired workflows it removes.
 
 ## Usage
 
@@ -72,12 +76,14 @@ The token needs contents, pull requests and workflows write on the repository. T
 | `branch` | `sync/workflows` | The pull request's branch. It belongs to the action. |
 | `title` | `ci: sync workflows from <source-repository>` | The commit subject and pull request title. |
 | `exclude` | | File names never synced, separated by newlines or commas. |
+| `remove` | | File names the source retired, removed where a copy is left. |
 | `dry-run` | `false` | Report the copies that differ, change nothing. |
 
 | Output | |
 | --- | --- |
 | `result` | `skipped`, `up-to-date`, `closed`, `created`, `updated`, `unchanged` or `dry-run`. |
 | `changed` | A JSON array of the file names that differ from the source. |
+| `removed` | A JSON array of the retired file names the repository still has. |
 | `pull-request-number`, `pull-request-url` | The sync pull request, or empty. |
 
 The action is a composite action with one `actions/github-script` step and plain CommonJS modules
@@ -87,8 +93,10 @@ in `src/`: no npm dependencies, no build, no `dist/`. Run the tests with `node -
 
 Two shared workflows here wrap the action for the org, with `actions-fyi/.github` as the source.
 
-**`_workflow-sync.yml`** runs the sync in the calling repository. Its caller, `workflow-sync.yml`, lives in
-`actions-fyi/.github` and is itself one of the synced workflows:
+Both are called from one workflow, `workflow-sync.yml`, which lives in `actions-fyi/.github` and is
+itself one of the synced workflows. Everything in `actions-fyi/.github` is distributed to the
+org's repositories, so the source has no workflow of its own: a job that is only for the source
+skips itself everywhere else.
 
 ```yaml
 on:
@@ -101,22 +109,6 @@ on:
       dry-run:
         type: boolean
         default: false
-permissions: {}
-jobs:
-  workflows:
-    permissions:
-      contents: read
-      id-token: write
-    uses: actions-fyi/sync-workflows/.github/workflows/_workflow-sync.yml@v1.0.0
-    with:
-      dry-run: ${{ inputs.dry-run || false }}
-```
-
-**`_workflow-sync-dispatch.yml`** sends the `workflow-sync` event to the org's repositories, so a change to
-the source doesn't wait for their daily run. Its caller lives only in `actions-fyi/.github`:
-
-```yaml
-on:
   push:
     branches: [main]
     paths:
@@ -126,11 +118,29 @@ on:
       - workflow-templates/*.yaml
 permissions: {}
 jobs:
+  workflows:
+    if: github.event_name != 'push'
+    permissions:
+      contents: read
+      id-token: write
+    uses: actions-fyi/sync-workflows/.github/workflows/_workflow-sync.yml@v1.0.0
+    with:
+      dry-run: ${{ inputs.dry-run || false }}
   dispatch:
+    if: github.event_name == 'push' && github.repository == 'actions-fyi/.github'
     permissions:
       id-token: write
     uses: actions-fyi/sync-workflows/.github/workflows/_workflow-sync-dispatch.yml@v1.0.0
 ```
+
+**`_workflow-sync.yml`** runs the sync in the calling repository, on the schedule, on demand and on the
+`workflow-sync` event. It skips itself in the source. It also removes the workflows the source has
+retired, which its `RETIRED` list names.
+
+**`_workflow-sync-dispatch.yml`** sends the `workflow-sync` event to the org's repositories, so a change to
+the source doesn't wait for their daily run. Only the source runs it: on a push to its `main` that
+changes a workflow or a workflow template. In every other repository a push that changes a
+workflow starts the run, and both jobs skip.
 
 Both get their token from Octo STS, whose trust policies are in `.github/chainguard` of
 `actions-fyi/.github` and name the shared workflow by its `job_workflow_ref`:

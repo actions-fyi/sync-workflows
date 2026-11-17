@@ -8,12 +8,19 @@
 //
 // The result is one of:
 //   skipped     the target is the source
-//   up-to-date  every copy matches the source and no sync pull request is open
-//   closed      every copy matches the source, so the open sync pull request was closed
+//   up-to-date  every copy matches the source, no retired workflow is left, and no sync pull
+//               request is open
+//   closed      the same, so the open sync pull request was closed
 //   created     a pull request was opened
 //   updated     the branch of the open pull request was rebuilt and its description rewritten
 //   unchanged   the open pull request already holds exactly these changes
-//   dry-run     copies differ, and dry-run kept this from writing anything
+//   dry-run     copies differ or a retired workflow is left, and dry-run kept this from writing
+//               anything
+//
+// Retired workflows: a name in `remove` is a workflow the source used to offer and withdrew. A
+// target that still has it loses it in the same pull request. A name the source still has isn't
+// retired, so it is kept with a warning, whichever of the two is changed first. An excluded name
+// is never touched.
 
 const path = require('node:path');
 const { ConfigError, parseInputs } = require('./inputs');
@@ -68,9 +75,10 @@ async function setBranch(github, repo, branch, sha, exists) {
   await github.rest.git.updateRef({ ...repo, ref: `heads/${branch}`, sha, force: true });
 }
 
-function setOutputs(core, { result, changed = [], pullRequest = null }) {
+function setOutputs(core, { result, changed = [], removed = [], pullRequest = null }) {
   core.setOutput('result', result);
   core.setOutput('changed', JSON.stringify(changed));
+  core.setOutput('removed', JSON.stringify(removed));
   core.setOutput('pull-request-number', pullRequest ? String(pullRequest.number) : '');
   core.setOutput('pull-request-url', pullRequest?.html_url ?? '');
   return result;
@@ -114,12 +122,22 @@ async function sync({ github, context, core, inputs }) {
   }
   const changes = copies.filter((copy) => copy.sha !== copy.currentSha);
   const changed = changes.map((change) => change.name);
-  core.info(`${copies.length} of the ${existing.size} workflows of ${inputs.repository} are copies of a workflow of ${sourceRepository}; ${changes.length} differ.`);
+  const removals = [];
+  for (const name of inputs.remove) {
+    if (!existing.has(name) || inputs.exclude.has(name)) continue;
+    if (source.has(name)) {
+      core.warning(`remove lists ${name}, but the source still has it. Keeping ${name}.`);
+      continue;
+    }
+    removals.push({ name, currentSha: existing.get(name) });
+  }
+  const removed = removals.map((removal) => removal.name);
+  core.info(`${copies.length} of the ${existing.size} workflows of ${inputs.repository} are copies of a workflow of ${sourceRepository}; ${changes.length} differ. ${removals.length} retired workflows are left.`);
 
   const { data: open } = await github.rest.pulls.list({ ...repo, state: 'open', head: `${repo.owner}:${branch}`, base: defaultBranch, per_page: 1 });
   let pullRequest = open[0] ?? null;
 
-  if (changes.length === 0) {
+  if (changes.length === 0 && removals.length === 0) {
     if (!pullRequest) return setOutputs(core, { result: 'up-to-date' });
     if (dryRun) {
       core.notice(`Dry run: would close #${pullRequest.number}, because ${defaultBranch} now matches the source.`);
@@ -141,19 +159,24 @@ async function sync({ github, context, core, inputs }) {
   }
 
   for (const change of changes) core.info(`  ${WORKFLOWS}/${change.name} differs from ${change.sourcePath}`);
+  for (const removal of removals) core.info(`  ${WORKFLOWS}/${removal.name} is retired`);
   if (dryRun) {
-    core.notice(`Dry run: ${changed.join(', ')} would be updated from ${sourceRepository}.`);
-    return setOutputs(core, { result: 'dry-run', changed, pullRequest });
+    const plans = [];
+    if (changed.length) plans.push(`${changed.join(', ')} would be updated from ${sourceRepository}`);
+    if (removed.length) plans.push(`${removed.join(', ')} would be removed`);
+    core.notice(`Dry run: ${plans.join('; ')}.`);
+    return setOutputs(core, { result: 'dry-run', changed, removed, pullRequest });
   }
 
-  // The open pull request is left alone when its branch already has every copy as it should be,
-  // so a daily run doesn't restart its checks or drop commits that a fix job added to it.
+  // The open pull request is left alone when its branch already has every copy as it should be
+  // and no retired workflow, so a daily run doesn't restart its checks or drop commits that a fix
+  // job added to it.
   const branchSha = await getBranch(github, repo, branch);
   if (pullRequest && branchSha) {
     const onBranch = await listWorkflows(github, repo, branchSha);
-    if (copies.every((copy) => onBranch.get(copy.name) === copy.sha)) {
+    if (copies.every((copy) => onBranch.get(copy.name) === copy.sha) && removals.every((removal) => !onBranch.has(removal.name))) {
       core.notice(`#${pullRequest.number} already holds these changes: ${pullRequest.html_url}`);
-      return setOutputs(core, { result: 'unchanged', changed, pullRequest });
+      return setOutputs(core, { result: 'unchanged', changed, removed, pullRequest });
     }
   }
 
@@ -161,13 +184,17 @@ async function sync({ github, context, core, inputs }) {
   const { data: tree } = await github.rest.git.createTree({
     ...repo,
     base_tree: base.commit.commit.tree.sha,
-    tree: changes.map((change) => ({ path: `${WORKFLOWS}/${change.name}`, mode: '100644', type: 'blob', content: change.content })),
+    // An entry without a blob deletes the path.
+    tree: [
+      ...changes.map((change) => ({ path: `${WORKFLOWS}/${change.name}`, mode: '100644', type: 'blob', content: change.content })),
+      ...removals.map((removal) => ({ path: `${WORKFLOWS}/${removal.name}`, mode: '100644', type: 'blob', sha: null })),
+    ],
   });
   // No author or committer: GitHub then attributes the commit to the token's app and signs it.
-  const { data: commit } = await github.rest.git.createCommit({ ...repo, message: commitMessage(inputs, changes), tree: tree.sha, parents: [baseSha] });
+  const { data: commit } = await github.rest.git.createCommit({ ...repo, message: commitMessage(inputs, changes, removals), tree: tree.sha, parents: [baseSha] });
   await setBranch(github, repo, branch, commit.sha, branchSha !== null);
 
-  const body = pullRequestBody(inputs, { defaultBranch, changes, collisions: used });
+  const body = pullRequestBody(inputs, { defaultBranch, changes, removals, collisions: used });
   let result;
   if (pullRequest) {
     ({ data: pullRequest } = await github.rest.pulls.update({ ...repo, pull_number: pullRequest.number, title, body }));
@@ -177,7 +204,7 @@ async function sync({ github, context, core, inputs }) {
     result = 'created';
   }
   core.notice(`Pull request #${pullRequest.number} ${result}: ${pullRequest.html_url}`);
-  return setOutputs(core, { result, changed, pullRequest });
+  return setOutputs(core, { result, changed, removed, pullRequest });
 }
 
 module.exports = async function main({ github, context, core, env = process.env }) {

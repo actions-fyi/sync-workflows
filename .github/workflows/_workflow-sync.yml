@@ -19,6 +19,9 @@ name: Sync
 #   it doesn't have is never added, one only it has is never touched, and actions.lock is never
 #   synced. A name in both source directories is taken from .github/workflows. In a workflow
 #   template, $default-branch becomes the repository's default branch.
+# - Removes the workflows the source has retired, which RETIRED below lists, from a repository
+#   that still has one, in the same pull request. Without that, a copy of a withdrawn workflow
+#   would stay, and keep running, forever: nothing else ever deletes it.
 # - When a copy differs, the action opens one pull request, or overwrites the branch of the one
 #   that is still open. Nothing is pushed to the default branch, so the repository's own checks
 #   run on the change, and its lockfile fix job updates actions.lock on the pull request.
@@ -51,6 +54,14 @@ on:
         default: false
 
 permissions: {}
+
+env:
+  # Workflows that actions-fyi/.github used to offer and withdrew. Add a name here when a workflow
+  # leaves the source; a name the source still has is kept, so the order of the two doesn't matter.
+  # - workflow-sync-dispatch.yml: the dispatch is a job of workflow-sync.yml now. As a workflow of
+  #   its own it was copied to every repository, where it can't get its token and fails.
+  RETIRED: |
+    workflow-sync-dispatch.yml
 
 defaults:
   run:
@@ -109,4 +120,5 @@ jobs:
           source-sha: ${{ steps.source.outputs.commit }}
           github-token: ${{ steps.sts.outputs.token }}
           exclude: ${{ github.repository == 'actions-fyi/sync-workflows' && 'workflow-sync.yml' || '' }}
+          remove: ${{ env.RETIRED }}
           dry-run: ${{ inputs.dry-run }}

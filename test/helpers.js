@@ -97,7 +97,10 @@ function mockGithub({ files = {}, defaultBranch = 'main' } = {}) {
         createTree: async ({ base_tree, tree }) => {
           record('createTree', { paths: tree.map((entry) => entry.path) });
           const next = { ...trees.get(base_tree) };
-          for (const entry of tree) next[entry.path] = entry.content;
+          for (const entry of tree) {
+            if (entry.sha === null) delete next[entry.path];
+            else next[entry.path] = entry.content;
+          }
           return { data: { sha: addTree(next) } };
         },
         createCommit: async ({ message, tree, parents }) => {
