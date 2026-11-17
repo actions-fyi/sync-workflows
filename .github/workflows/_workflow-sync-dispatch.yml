@@ -3,6 +3,11 @@ name: Dispatch Sync
 # main that change a workflow or a workflow template, and it tells the org's repositories to sync
 # now, so a change doesn't wait for their daily run. See _workflow-sync.yml for the sync itself.
 #
+# The caller is a job of workflow-sync.yml, which is distributed to every repository, so that job
+# must only run in the source: Octo STS grants the token to no other repository. A caller of its
+# own in actions-fyi/.github would be copied to the other repositories with the rest, and fail
+# there.
+#
 # The _ prefix marks a shared workflow: called only with workflow_call, never by events or rulesets.
 #
 # It sends a repository_dispatch event of type workflow-sync to every repository of the org that the

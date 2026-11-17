@@ -181,3 +181,90 @@ test('a bad input or an empty source checkout fails the step', async (t) => {
   assert.match(empty.core.failed[0], /No workflow was found/);
   assert.equal(empty.result, 'error');
 });
+
+test('a retired workflow the repository still has is removed in the same pull request', async (t) => {
+  const github = mockGithub({
+    files: {
+      [`${W}/codeql.yml`]: 'name: CodeQL\non: push\n',
+      [`${W}/retired.yml`]: 'name: Retired\n',
+      [`${W}/own.yml`]: 'name: Own\n',
+    },
+  });
+  const { result, core } = await run(t, {
+    github,
+    source: { [`${W}/codeql.yml`]: 'name: CodeQL\non: pull_request\n' },
+    SYNC_REMOVE: 'retired.yml, never-had.yml',
+  });
+  assert.equal(result, 'created');
+  assert.deepEqual(core.failed, []);
+  assert.equal(core.outputs.changed, '["codeql.yml"]');
+  assert.equal(core.outputs.removed, '["retired.yml"]');
+  assert.deepEqual(github.calls[0].paths, [`${W}/codeql.yml`, `${W}/retired.yml`]);
+  assert.deepEqual(github.filesAt('sync/workflows'), {
+    [`${W}/codeql.yml`]: 'name: CodeQL\non: pull_request\n',
+    [`${W}/own.yml`]: 'name: Own\n',
+  });
+  assert.match(github.commit(github.refs.get('sync/workflows')).message, /- \.github\/workflows\/retired\.yml removed: the source retired it/);
+  const [pull] = github.pulls;
+  assert.match(pull.body, /^Updates 1 workflow of this repository/);
+  assert.match(pull.body, /Removes 1 workflow that \[acme\/\.github\]\(https:\/\/github\.com\/acme\/\.github\) at \[`aaaaaaa`\]\([^)]+\) retired: `\.github\/workflows\/retired\.yml`\./);
+});
+
+test('a retired workflow alone opens a pull request, and the next run leaves it alone', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'same\n', [`${W}/retired.yml`]: 'name: Retired\n' } });
+  const source = { [`${W}/codeql.yml`]: 'same\n' };
+  const first = await run(t, { github, source, SYNC_REMOVE: 'retired.yml' });
+  assert.equal(first.result, 'created');
+  assert.equal(first.core.outputs.changed, '[]');
+  assert.equal(first.core.outputs.removed, '["retired.yml"]');
+  assert.doesNotMatch(github.pulls[0].body, /\| Workflow \| Source \| Lines \|/);
+  assert.match(github.pulls[0].body, /^Removes 1 workflow that/);
+  const before = github.calls.length;
+  const second = await run(t, { github, source, SYNC_REMOVE: 'retired.yml' });
+  assert.equal(second.result, 'unchanged');
+  assert.equal(github.calls.length, before);
+});
+
+test('a name the source still has, or an excluded one, is never removed', async (t) => {
+  const files = { [`${W}/kept.yml`]: 'same\n', [`${W}/excluded.yml`]: 'name: Excluded\n' };
+  const github = mockGithub({ files });
+  const { result, core } = await run(t, {
+    github,
+    source: { [`${W}/kept.yml`]: 'same\n' },
+    SYNC_REMOVE: 'kept.yml\nexcluded.yml',
+    SYNC_EXCLUDE: 'excluded.yml',
+  });
+  assert.equal(result, 'up-to-date');
+  assert.equal(core.outputs.removed, '[]');
+  assert.deepEqual(writes(github), []);
+  assert.match(core.warnings.join('\n'), /remove lists kept\.yml, but the source still has it\. Keeping kept\.yml\./);
+});
+
+test('the pull request is closed once the retired workflow is gone from the default branch', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'same\n', [`${W}/retired.yml`]: 'name: Retired\n' } });
+  const source = { [`${W}/codeql.yml`]: 'same\n' };
+  await run(t, { github, source, SYNC_REMOVE: 'retired.yml' });
+  // The pull request is merged: the default branch now is what its branch was.
+  github.refs.set('main', github.refs.get('sync/workflows'));
+  const { result } = await run(t, { github, source, SYNC_REMOVE: 'retired.yml' });
+  assert.equal(result, 'closed');
+  assert.equal(github.pulls[0].state, 'closed');
+});
+
+test('a dry run reports a retired workflow and writes nothing', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'same\n', [`${W}/retired.yml`]: 'name: Retired\n' } });
+  const { result, core } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'same\n' }, SYNC_REMOVE: 'retired.yml', SYNC_DRY_RUN: 'true' });
+  assert.equal(result, 'dry-run');
+  assert.deepEqual(writes(github), []);
+  assert.match(core.notices.join('\n'), /Dry run: retired\.yml would be removed\./);
+});
+
+test('remove only takes workflow file names', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'same\n' } });
+  for (const name of ['../README.md', 'actions.lock', 'dir/file.yml']) {
+    const { result, core } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'same\n' }, SYNC_REMOVE: name });
+    assert.equal(result, 'error');
+    assert.match(core.failed[0], /remove lists ".*", which is not a \.yml or \.yaml file name\./);
+  }
+  assert.deepEqual(writes(github), []);
+});

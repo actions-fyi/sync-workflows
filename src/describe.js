@@ -13,8 +13,11 @@ function sourceLabel({ sourceRepository, sourceSha }) {
   return sourceSha ? `${sourceRepository}@${sourceSha}` : sourceRepository;
 }
 
-function commitMessage(inputs, changes) {
-  const lines = changes.map((change) => `- ${WORKFLOWS}/${change.name} from ${change.sourcePath}`);
+function commitMessage(inputs, changes, removals = []) {
+  const lines = [
+    ...changes.map((change) => `- ${WORKFLOWS}/${change.name} from ${change.sourcePath}`),
+    ...removals.map((removal) => `- ${WORKFLOWS}/${removal.name} removed: the source retired it`),
+  ];
   return `${inputs.title}\n\nSource: ${sourceLabel(inputs)}\n\n${lines.join('\n')}\n`;
 }
 
@@ -28,18 +31,25 @@ function count(diff) {
   return diff ? `+${diff.added} −${diff.removed}` : 'too large to compare';
 }
 
-function pullRequestBody(inputs, { defaultBranch, changes, collisions }) {
+function pullRequestBody(inputs, { defaultBranch, changes, removals = [], collisions }) {
   const { sourceRepository, sourceSha, serverUrl, runId } = inputs;
   const sourceUrl = `${serverUrl}/${sourceRepository}`;
   const ref = sourceSha || 'HEAD';
   const at = sourceSha ? ` at [\`${sourceSha.slice(0, 7)}\`](${sourceUrl}/commit/${sourceSha})` : '';
-  const plural = changes.length === 1 ? 'workflow' : 'workflows';
-  const out = [
-    `Updates ${changes.length} ${plural} of this repository to match [${sourceRepository}](${sourceUrl})${at}.`,
-    '',
-    '| Workflow | Source | Lines |',
-    '| --- | --- | --- |',
-  ];
+  const plural = (count) => (count === 1 ? 'workflow' : 'workflows');
+  const source = `[${sourceRepository}](${sourceUrl})${at}`;
+  const out = [];
+  if (changes.length) {
+    out.push(`Updates ${changes.length} ${plural(changes.length)} of this repository to match ${source}.`);
+  }
+  if (removals.length) {
+    const names = removals.map((removal) => `\`${WORKFLOWS}/${removal.name}\``).join(', ');
+    out.push(
+      ...(out.length ? [''] : []),
+      `Removes ${removals.length} ${plural(removals.length)} that ${source} retired: ${names}. The source no longer has ${removals.length === 1 ? 'it' : 'them'}, so a copy here would never be updated again.`,
+    );
+  }
+  if (changes.length) out.push('', '| Workflow | Source | Lines |', '| --- | --- | --- |');
   const diffs = changes.map((change) => ({ change, diff: unifiedDiff(change.before, change.content) }));
   for (const { change, diff } of diffs) {
     const rendered = change.origin === 'template' ? `, a workflow template rendered with \`$default-branch\` = \`${defaultBranch}\`` : '';
@@ -59,7 +69,7 @@ function pullRequestBody(inputs, { defaultBranch, changes, collisions }) {
   }
   out.push(
     '',
-    `Only \`.yml\` and \`.yaml\` workflows that this repository already has, under the same file name as in the source, are updated. No workflow is added or removed, and \`actions.lock\` is not synced.`,
+    `Only \`.yml\` and \`.yaml\` workflows that this repository already has, under the same file name as in the source, are updated. No workflow is added, one is removed only when the source retired it, and \`actions.lock\` is not synced.`,
   );
   if (collisions.length) {
     const names = collisions.map((name) => `\`${name}\``).join(', ');
