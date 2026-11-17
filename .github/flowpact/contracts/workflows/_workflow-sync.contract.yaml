@@ -23,6 +23,7 @@ uses:
       dry-run: ${{ inputs.dry-run }}
       exclude: ${{ github.repository == 'actions-fyi/sync-workflows' && 'workflow-sync.yml' || '' }}
       github-token: ${{ steps.sts.outputs.token }}
+      remove: ${{ env.RETIRED }}
       source-path: source
       source-repository: actions-fyi/.github
       source-sha: ${{ steps.source.outputs.commit }}
