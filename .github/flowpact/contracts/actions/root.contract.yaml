@@ -23,6 +23,10 @@ interface:
       required: false
       default: ${{ github.token }}
       description: The token that reads the repository, pushes the branch and opens the pull request.
+    ignore-versions:
+      required: false
+      default: 'false'
+      description: Leave a copy that differs from the source only in the versions it references, e.g. the ref of a `uses:`, as it is. For repositories where Renovate updates those versions.
     remove:
       required: false
       default: ''
@@ -66,6 +70,7 @@ consumers:
       - dry-run
       - exclude
       - github-token
+      - ignore-versions
       - remove
       - source-path
       - source-repository

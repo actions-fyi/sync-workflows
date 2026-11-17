@@ -66,6 +66,12 @@ inputs:
       that still has one loses it in the sync pull request. A name the source still has is kept.
     required: false
     default: ""
+  ignore-versions:
+    description: >-
+      Leave a copy that differs from the source only in the versions it references, e.g. the ref of
+      a `uses:`, as it is. For repositories where Renovate updates those versions.
+    required: false
+    default: "false"
   dry-run:
     description: Report which copies differ, but make no changes on GitHub.
     required: false
@@ -103,6 +109,7 @@ runs:
         SYNC_TITLE: ${{ inputs.title }}
         SYNC_EXCLUDE: ${{ inputs.exclude }}
         SYNC_REMOVE: ${{ inputs.remove }}
+        SYNC_IGNORE_VERSIONS: ${{ inputs.ignore-versions }}
         SYNC_DRY_RUN: ${{ inputs.dry-run }}
       with:
         github-token: ${{ inputs.github-token }}

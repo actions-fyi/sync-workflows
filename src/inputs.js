@@ -47,6 +47,7 @@ function parseInputs(env) {
     title,
     exclude: new Set(list(env.SYNC_EXCLUDE)),
     remove,
+    ignoreVersions: bool(env, 'SYNC_IGNORE_VERSIONS', false),
     dryRun: bool(env, 'SYNC_DRY_RUN', false),
     workspace: env.GITHUB_WORKSPACE || process.cwd(),
     serverUrl: (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/, ''),
