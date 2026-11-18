@@ -23,6 +23,14 @@ interface:
       required: false
       default: ${{ github.token }}
       description: The token that reads the repository, pushes the branch and opens the pull request.
+    ignore-versions:
+      required: false
+      default: 'false'
+      description: Leave a copy that differs from the source only in the versions it references, e.g. the ref of a `uses:`, as it is. For repositories where Renovate updates those versions.
+    remove:
+      required: false
+      default: ''
+      description: Workflow file names the source has retired, separated by newlines or commas. A repository that still has one loses it in the sync pull request. A name the source still has is kept.
     source-path:
       required: false
       default: .
@@ -48,6 +56,9 @@ interface:
     pull-request-url:
       description: The URL of the sync pull request, or empty when there is none.
       value: ${{ steps.sync.outputs.pull-request-url }}
+    removed:
+      description: A JSON array of the retired workflow file names the repository still has.
+      value: ${{ steps.sync.outputs.removed }}
     result:
       description: skipped, up-to-date, closed, created, updated, unchanged or dry-run; see src/main.js. Empty means the step failed.
       value: ${{ steps.sync.outputs.result }}
@@ -59,6 +70,8 @@ consumers:
       - dry-run
       - exclude
       - github-token
+      - ignore-versions
+      - remove
       - source-path
       - source-repository
       - source-sha

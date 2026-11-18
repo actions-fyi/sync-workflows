@@ -13,7 +13,7 @@ const crypto = require('node:crypto');
 
 const WORKFLOWS = '.github/workflows';
 const TEMPLATES = 'workflow-templates';
-const WORKFLOW_FILE = /^[^/\\]+\.ya?ml$/;
+const { WORKFLOW_FILE } = require('./inputs');
 
 // GitHub replaces these when a workflow is added from a template. Only $default-branch has one
 // right value per repository. $protected-branches follows branch protection, and the two cron

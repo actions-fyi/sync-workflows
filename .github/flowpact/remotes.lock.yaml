@@ -267,8 +267,8 @@ remotes:
       - cache-primary-key
       - cache-matched-key
       - node-version
-  step-security/harden-runner@v2.22.4:
-    sha: 1d88384fd173af6ecb012dfd0264a306b711241a
+  step-security/harden-runner@v2.23.0:
+    sha: aebdcf6156ab6691adf63218240e476564a1ed4c
     kind: action
     using: node24
     inputs:
@@ -300,6 +300,10 @@ remotes:
         default: ''
       server-name:
         default: ''
+      secure-registry:
+        default: ''
+      check-run-id:
+        default: ${{ job.check_run_id }}
   step-security/octo-sts-action@v1.1.1:
     sha: 9719306bce0808715a4de71515c7cdcbc560c38b
     kind: action

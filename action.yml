@@ -15,7 +15,9 @@ branding:
 # .github/workflows and workflow-templates from that checkout. A workflow of the repository is
 # updated when the source has a .yml or .yaml file of the same name; .github/workflows wins over
 # workflow-templates. In a template, $default-branch becomes the repository's default branch.
-# Nothing is added or removed, and no other file, such as actions.lock, is touched.
+# Nothing is added, and no other file, such as actions.lock, is touched. A workflow is removed
+# only when the remove input names it and the source no longer has it: that is how a workflow the
+# source retired leaves the repositories that still have a copy.
 #
 # Every input reaches the script through the step's env, never by interpolation into the script.
 #
@@ -58,6 +60,18 @@ inputs:
     description: Workflow file names that are never synced, separated by newlines or commas.
     required: false
     default: ""
+  remove:
+    description: >-
+      Workflow file names the source has retired, separated by newlines or commas. A repository
+      that still has one loses it in the sync pull request. A name the source still has is kept.
+    required: false
+    default: ""
+  ignore-versions:
+    description: >-
+      Leave a copy that differs from the source only in the versions it references, e.g. the ref of
+      a `uses:`, as it is. For repositories where Renovate updates those versions.
+    required: false
+    default: "false"
   dry-run:
     description: Report which copies differ, but make no changes on GitHub.
     required: false
@@ -71,6 +85,9 @@ outputs:
   changed:
     description: A JSON array of the workflow file names that differ from the source.
     value: ${{ steps.sync.outputs.changed }}
+  removed:
+    description: A JSON array of the retired workflow file names the repository still has.
+    value: ${{ steps.sync.outputs.removed }}
   pull-request-number:
     description: The number of the sync pull request, or empty when there is none.
     value: ${{ steps.sync.outputs.pull-request-number }}
@@ -91,6 +108,8 @@ runs:
         SYNC_BRANCH: ${{ inputs.branch }}
         SYNC_TITLE: ${{ inputs.title }}
         SYNC_EXCLUDE: ${{ inputs.exclude }}
+        SYNC_REMOVE: ${{ inputs.remove }}
+        SYNC_IGNORE_VERSIONS: ${{ inputs.ignore-versions }}
         SYNC_DRY_RUN: ${{ inputs.dry-run }}
       with:
         github-token: ${{ inputs.github-token }}
