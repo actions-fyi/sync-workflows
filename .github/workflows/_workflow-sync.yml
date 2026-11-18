@@ -88,7 +88,7 @@ jobs:
       id-token: write # Exchange the job's OIDC token with Octo STS
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@v2.22.4
+        uses: step-security/harden-runner@v2.23.0
         with:
           egress-policy: audit
       - name: Checkout Source
