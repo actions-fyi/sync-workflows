@@ -77,6 +77,9 @@ jobs:
     if: >-
       github.repository != 'actions-fyi/.github'
       && github.repository != 'actions-fyi/shared-workflows'
+    # Not ubuntu-24.04-firewall, the egress firewall's runner: its runner version is older than
+    # 2.336.0 and refuses the `uses: $/` step below (github-early-access/actions-native-egress-
+    # firewall#39).
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # One run per repository at a time; a second one waits, so two never update the same pull
@@ -87,10 +90,6 @@ jobs:
       contents: read # Declared for the job; the source is public
       id-token: write # Exchange the job's OIDC token with Octo STS
     steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@v2.23.0
-        with:
-          egress-policy: audit
       - name: Checkout Source
         id: source
         uses: actions/checkout@v7.0.1
@@ -105,7 +104,7 @@ jobs:
       - name: Get Sync Token
         id: sts
         continue-on-error: true
-        uses: step-security/octo-sts-action@v1.1.1
+        uses: octo-sts/action@v1.1.1
         with:
           scope: ${{ github.repository_owner }}
           identity: workflow-sync
