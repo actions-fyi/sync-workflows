@@ -59,9 +59,11 @@ function render(file, defaultBranch) {
 }
 
 // The SHA git gives a blob with this content, to compare with a tree entry without fetching it.
+// SHA-1 is git's object ID, not a security choice: any other hash would never match the tree.
+// The match only skips writing a file that's already up to date.
 function blobSha(content) {
   const bytes = Buffer.from(content, 'utf8');
-  return crypto.createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+  return crypto.createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'); // NOSONAR: git object ID
 }
 
 module.exports = { WORKFLOWS, TEMPLATES, WORKFLOW_FILE, readSource, render, blobSha };
