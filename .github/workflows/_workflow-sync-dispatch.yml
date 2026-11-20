@@ -26,6 +26,7 @@ name: Dispatch Sync
 #
 # The calling job must grant what the dispatch job declares, or the call fails before anything
 # runs:
+#   contents: read   # the egress firewall reads .github/egress-firewall.yaml
 #   id-token: write  # exchange the job's OIDC token with Octo STS
 on:
   workflow_call:
@@ -45,19 +46,16 @@ defaults:
 jobs:
   dispatch:
     name: Dispatch
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-firewall
     timeout-minutes: 10
     permissions:
+      contents: read # The egress firewall reads .github/egress-firewall.yaml with this token
       id-token: write # Exchange the job's OIDC token with Octo STS
     steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@v2.23.0
-        with:
-          egress-policy: audit
       - name: Get Dispatch Token
         id: sts
         continue-on-error: true
-        uses: step-security/octo-sts-action@v1.1.1
+        uses: octo-sts/action@v1.1.1
         with:
           scope: ${{ github.repository_owner }}
           identity: workflow-sync-dispatch

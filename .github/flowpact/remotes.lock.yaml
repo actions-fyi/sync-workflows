@@ -290,52 +290,13 @@ remotes:
       - cache-primary-key
       - cache-matched-key
       - node-version
-  step-security/harden-runner@v2.23.0:
-    sha: aebdcf6156ab6691adf63218240e476564a1ed4c
-    kind: action
-    using: node24
-    inputs:
-      allowed-endpoints:
-        default: ''
-      denied-endpoints:
-        default: ''
-      egress-policy:
-        default: block
-      token:
-        default: ${{ github.token }}
-      disable-telemetry:
-        default: 'false'
-      disable-sudo:
-        default: 'false'
-      disable-sudo-and-containers:
-        default: 'false'
-      disable-file-monitoring:
-        default: 'false'
-      policy:
-        default: ''
-      api-key:
-        default: ''
-      use-policy-store:
-        default: 'false'
-      deploy-on-self-hosted-vm:
-        default: 'false'
-      customer:
-        default: ''
-      server-name:
-        default: ''
-      secure-registry:
-        default: ''
-      check-run-id:
-        default: ${{ job.check_run_id }}
-  step-security/octo-sts-action@v1.1.1:
-    sha: 9719306bce0808715a4de71515c7cdcbc560c38b
+  octo-sts/action@v1.1.1:
+    sha: f603d3be9d8dd9871a265776e625a27b00effe05
     kind: action
     using: node24
     inputs:
       domain:
         default: octo-sts.dev
-      scheme:
-        default: https
       scope:
         required: true
       identity:

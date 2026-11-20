@@ -17,7 +17,7 @@ interface:
   outputs: {}
 uses:
   - job: workflows
-    step: '#5'
+    step: '#4'
     uses: .
     with:
       dry-run: ${{ inputs.dry-run }}

@@ -3,6 +3,12 @@
 # `uses: $/` in _workflow-sync.yml is GitHub's self repository reference to this repository's root
 # action, at the commit the workflow runs at. actionlint only accepts `$/` followed by a path, so
 # that one finding is ignored there, and nowhere else.
+#
+# ubuntu-24.04-firewall is GitHub's egress firewall runner (technical preview): a GitHub-hosted
+# label that actionlint doesn't know yet, so it's declared here as if it were self-hosted.
+self-hosted-runner:
+  labels:
+    - ubuntu-24.04-firewall
 paths:
   .github/workflows/_workflow-sync.yml:
     ignore:
