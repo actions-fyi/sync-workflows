@@ -65,7 +65,7 @@ interface:
 consumers:
   - from: .github/workflows/_workflow-sync.yml
     job: workflows
-    step: '#5'
+    step: '#4'
     passes:
       - dry-run
       - exclude
