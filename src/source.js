@@ -4,8 +4,9 @@
 //
 // A workflow is identified by its file name. The source offers a name from .github/workflows or
 // from workflow-templates; when both have it, .github/workflows wins and the name is reported as
-// a collision. Only .yml and .yaml files are read: actions.lock, the templates' .properties.json
-// and everything else are never synced.
+// a collision. Only .yml and .yaml files are read there: actions.lock, the templates'
+// .properties.json and everything else in the two directories are never synced. A file anywhere
+// else is read only when the `files` input names it, and is identified by its path.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -50,6 +51,19 @@ function readSource(root) {
   return { files, collisions };
 }
 
+// Another file of the source, by its path in the checkout. Null when the source doesn't have it.
+function readSourceFile(root, file) {
+  const full = path.join(root, file);
+  try {
+    // lstat doesn't follow a symlink, so a link out of the checkout is never read.
+    if (!fs.lstatSync(full).isFile()) return null;
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+    throw error;
+  }
+  return fs.readFileSync(full, 'utf8');
+}
+
 // Returns { content } or { unsupported: string[] } for a template this can't render.
 function render(file, defaultBranch) {
   if (file.origin !== 'template') return { content: file.content };
@@ -66,4 +80,4 @@ function blobSha(content) {
   return crypto.createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'); // NOSONAR: git object ID
 }
 
-module.exports = { WORKFLOWS, TEMPLATES, WORKFLOW_FILE, readSource, render, blobSha };
+module.exports = { WORKFLOWS, TEMPLATES, WORKFLOW_FILE, readSource, readSourceFile, render, blobSha };

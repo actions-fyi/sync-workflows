@@ -15,9 +15,12 @@ branding:
 # .github/workflows and workflow-templates from that checkout. A workflow of the repository is
 # updated when the source has a .yml or .yaml file of the same name; .github/workflows wins over
 # workflow-templates. In a template, $default-branch becomes the repository's default branch.
-# Nothing is added, and no other file, such as actions.lock, is touched. A workflow is removed
-# only when the remove input names it and the source no longer has it: that is how a workflow the
-# source retired leaves the repositories that still have a copy.
+# No other file, such as actions.lock, is touched, unless the files input names its path: that is
+# how the egress firewall's policy follows the source too. Nothing is added unless the add input
+# is set; then the repository also gets the workflows of the source's .github/workflows, and the
+# files, that it lacks. A workflow is removed only when the remove input names it and the source
+# no longer has it: that is how a workflow the source retired leaves the repositories that still
+# have a copy.
 #
 # Every input reaches the script through the step's env, never by interpolation into the script.
 #
@@ -57,9 +60,23 @@ inputs:
     required: false
     default: ""
   exclude:
-    description: Workflow file names that are never synced, separated by newlines or commas.
+    description: >-
+      Workflow file names, and paths from files, that are never synced or added, separated by
+      newlines or commas.
     required: false
     default: ""
+  files:
+    description: >-
+      Paths of other files of the source to sync to the same path, separated by newlines or
+      commas, e.g. .github/egress-firewall.yaml. Each is copied as it is and compared as a whole.
+    required: false
+    default: ""
+  add:
+    description: >-
+      Also add what the repository lacks: every workflow in the source's .github/workflows, and
+      every path in files. A workflow template is never added.
+    required: false
+    default: "false"
   remove:
     description: >-
       Workflow file names the source has retired, separated by newlines or commas. A repository
@@ -83,8 +100,13 @@ outputs:
       means the step failed.
     value: ${{ steps.sync.outputs.result }}
   changed:
-    description: A JSON array of the workflow file names that differ from the source.
+    description: >-
+      A JSON array of the workflow file names, and the paths from files, that differ from the
+      source or are added.
     value: ${{ steps.sync.outputs.changed }}
+  added:
+    description: A JSON array of those in changed that the repository didn't have.
+    value: ${{ steps.sync.outputs.added }}
   removed:
     description: A JSON array of the retired workflow file names the repository still has.
     value: ${{ steps.sync.outputs.removed }}
@@ -109,6 +131,8 @@ runs:
         SYNC_TITLE: ${{ inputs.title }}
         SYNC_EXCLUDE: ${{ inputs.exclude }}
         SYNC_REMOVE: ${{ inputs.remove }}
+        SYNC_FILES: ${{ inputs.files }}
+        SYNC_ADD: ${{ inputs.add }}
         SYNC_IGNORE_VERSIONS: ${{ inputs.ignore-versions }}
         SYNC_DRY_RUN: ${{ inputs.dry-run }}
       with:

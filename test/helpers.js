@@ -80,6 +80,7 @@ function mockGithub({ files = {}, defaultBranch = 'main' } = {}) {
         },
         getContent: async ({ path: directory, ref }) => {
           const tree = trees.get(commits.get(ref).tree);
+          if (tree[directory] !== undefined) return { data: { type: 'file', name: path.posix.basename(directory), sha: blobSha(tree[directory]) } };
           const entries = Object.entries(tree)
             .filter(([file]) => path.posix.dirname(file) === directory)
             .map(([file, content]) => ({ type: 'file', name: path.posix.basename(file), sha: blobSha(content) }));

@@ -20,8 +20,10 @@ uses:
     step: '#4'
     uses: .
     with:
+      add: 'true'
       dry-run: ${{ inputs.dry-run }}
-      exclude: ${{ github.repository == 'actions-fyi/sync-workflows' && 'workflow-sync.yml' || '' }}
+      exclude: ${{ format('{0},{1}', vars.WORKFLOW_SYNC_EXCLUDE, github.repository == 'actions-fyi/sync-workflows' && 'workflow-sync.yml' || '') }}
+      files: .github/egress-firewall.yaml
       github-token: ${{ steps.sts.outputs.token }}
       ignore-versions: 'true'
       remove: ${{ env.RETIRED }}

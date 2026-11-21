@@ -16,8 +16,14 @@ updated when the source has a file of the same name in either of:
 The rules:
 
 - Only `.yml` and `.yaml` files are synced. `actions.lock`, a template's `.properties.json` and
-  every other file are never read or written.
-- Only copies the repository already has are updated. No workflow is added.
+  every other file in the two directories are never read or written.
+- Without `add`, only copies the repository already has are updated, and no workflow is added.
+- With `add`, the repository also gets every workflow in the source's `.github/workflows` that
+  it lacks. A workflow template is never added: it is for the repositories that picked it. An
+  excluded name is never added, which is how a repository keeps a workflow out.
+- A path in `files` is another file of the source, such as `.github/egress-firewall.yaml`. It is
+  copied as it is to the same path, updated where the repository has it and, with `add`, added
+  where it doesn't. A path the source doesn't have is skipped with a warning.
 - A workflow is removed only when `remove` names it and the source no longer has it. That is how
   a workflow the source retired leaves the repositories that still have a copy. A name the source
   still has is kept, with a warning, and an excluded name is never touched.
@@ -29,11 +35,11 @@ The rules:
   is: the ref of a `uses:`, with a version comment after it, and the value on the line after a
   `# renovate:` annotation. Renovate updates those, so a sync of nothing else would duplicate its
   pull request. Such a copy counts as matching. A copy that differs in anything else is replaced
-  by the source's, versions included.
+  by the source's, versions included. A file from `files` is always compared as a whole.
 
 ## The pull request
 
-When a copy differs, or a retired workflow is left, the action commits the new contents and the
+When a copy differs or is missing, or a retired workflow is left, the action commits the new contents and the
 removals on top of the default branch and points its branch, `sync/workflows`, at that commit.
 
 - With no open pull request, it opens one. A branch left behind by a closed one is overwritten.
@@ -41,12 +47,12 @@ removals on top of the default branch and points its branch, `sync/workflows`, a
 - If the open pull request's branch already has every copy as it should be and no retired
   workflow, nothing is written, so its checks don't restart and commits added to it, such as a
   lockfile fix, stay.
-- Once the default branch matches the source and has no retired workflow, the open pull request
+- Once the default branch matches the source, lacks nothing and has no retired workflow, the open pull request
   is closed and its branch deleted.
 
 The commit and the pull request are titled `ci: sync workflows from <source>`. The description
-links the source commit, lists each workflow with the file it came from and its changed line
-counts, shows each diff, and names the retired workflows it removes.
+links the source commit, lists each file with the file it came from and its changed line
+counts, marks the new ones, shows each diff, and names the retired workflows it removes.
 
 ## Usage
 
@@ -80,7 +86,9 @@ The token needs contents, pull requests and workflows write on the repository. T
 | `github-token` | `github.token` | Reads the repository, pushes the branch, opens the pull request. |
 | `branch` | `sync/workflows` | The pull request's branch. It belongs to the action. |
 | `title` | `ci: sync workflows from <source-repository>` | The commit subject and pull request title. |
-| `exclude` | | File names never synced, separated by newlines or commas. |
+| `exclude` | | Workflow file names, and paths from `files`, never synced or added, separated by newlines or commas. |
+| `files` | | Paths of other files of the source to sync to the same path. |
+| `add` | `false` | Also add the workflows of the source's `.github/workflows`, and the `files`, the repository lacks. |
 | `remove` | | File names the source retired, removed where a copy is left. |
 | `ignore-versions` | `false` | Leave copies that differ only in the versions they reference. |
 | `dry-run` | `false` | Report the copies that differ, change nothing. |
@@ -88,7 +96,8 @@ The token needs contents, pull requests and workflows write on the repository. T
 | Output | |
 | --- | --- |
 | `result` | `skipped`, `up-to-date`, `closed`, `created`, `updated`, `unchanged` or `dry-run`. |
-| `changed` | A JSON array of the file names that differ from the source. |
+| `changed` | A JSON array of the workflow file names, and the paths from `files`, that differ from the source or are added. |
+| `added` | A JSON array of those in `changed` that the repository didn't have. |
 | `removed` | A JSON array of the retired file names the repository still has. |
 | `pull-request-number`, `pull-request-url` | The sync pull request, or empty. |
 
@@ -122,6 +131,7 @@ on:
       - .github/workflows/*.yaml
       - workflow-templates/*.yml
       - workflow-templates/*.yaml
+      - .github/egress-firewall.yaml
 permissions: {}
 jobs:
   workflows:
@@ -140,12 +150,21 @@ jobs:
 ```
 
 **`_workflow-sync.yml`** runs the sync in the calling repository, on the schedule, on demand and on the
-`workflow-sync` event. It skips itself in the source. It also removes the workflows the source has
-retired, which its `RETIRED` list names.
+`workflow-sync` event. It skips itself in the source. Beyond updating the copies a repository has,
+it:
+
+- adds the workflows of the source's `.github/workflows` that the repository doesn't have yet;
+- syncs `.github/egress-firewall.yaml`, the egress firewall's policy that the workflows run
+  under, and adds it where it is missing;
+- removes the workflows the source has retired, which its `RETIRED` list names.
+
+A repository keeps a workflow out, or keeps its own policy, by naming it in its
+`WORKFLOW_SYNC_EXCLUDE` variable: workflow file names and the policy's path, separated by commas
+or newlines.
 
 **`_workflow-sync-dispatch.yml`** sends the `workflow-sync` event to the org's repositories, so a change to
 the source doesn't wait for their daily run. Only the source runs it: on a push to its `main` that
-changes a workflow or a workflow template. In every other repository a push that changes a
+changes a workflow, a workflow template or the firewall policy. In every other repository a push that changes a
 workflow starts the run, and both jobs skip.
 
 Both get their token from Octo STS, whose trust policies are in `.github/chainguard` of

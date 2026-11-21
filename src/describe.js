@@ -15,7 +15,7 @@ function sourceLabel({ sourceRepository, sourceSha }) {
 
 function commitMessage(inputs, changes, removals = []) {
   const lines = [
-    ...changes.map((change) => `- ${WORKFLOWS}/${change.name} from ${change.sourcePath}`),
+    ...changes.map((change) => `- ${change.path} ${change.added ? 'added ' : ''}from ${change.sourcePath}`),
     ...removals.map((removal) => `- ${WORKFLOWS}/${removal.name} removed: the source retired it`),
   ];
   return `${inputs.title}\n\nSource: ${sourceLabel(inputs)}\n\n${lines.join('\n')}\n`;
@@ -37,23 +37,30 @@ function pullRequestBody(inputs, { defaultBranch, changes, removals = [], versio
   const ref = sourceSha || 'HEAD';
   const at = sourceSha ? ` at [\`${sourceSha.slice(0, 7)}\`](${sourceUrl}/commit/${sourceSha})` : '';
   const plural = (count) => (count === 1 ? 'workflow' : 'workflows');
+  // "workflows" unless one of them is another file.
+  const noun = (list) => (list.some((change) => change.origin === 'file') ? (list.length === 1 ? 'file' : 'files') : plural(list.length));
   const source = `[${sourceRepository}](${sourceUrl})${at}`;
+  const updates = changes.filter((change) => !change.added);
+  const additions = changes.filter((change) => change.added);
   const out = [];
-  if (changes.length) {
-    out.push(`Updates ${changes.length} ${plural(changes.length)} of this repository to match ${source}.`);
+  const paragraph = (text) => out.push(...(out.length ? [''] : []), text);
+  if (updates.length) {
+    paragraph(`Updates ${updates.length} ${noun(updates)} of this repository to match ${source}.`);
+  }
+  if (additions.length) {
+    paragraph(`Adds ${additions.length} ${noun(additions)} of ${source} that this repository doesn't have yet.`);
   }
   if (removals.length) {
     const names = removals.map((removal) => `\`${WORKFLOWS}/${removal.name}\``).join(', ');
-    out.push(
-      ...(out.length ? [''] : []),
+    paragraph(
       `Removes ${removals.length} ${plural(removals.length)} that ${source} retired: ${names}. The source no longer has ${removals.length === 1 ? 'it' : 'them'}, so a copy here would never be updated again.`,
     );
   }
-  if (changes.length) out.push('', '| Workflow | Source | Lines |', '| --- | --- | --- |');
+  if (changes.length) out.push('', '| File | Source | Lines |', '| --- | --- | --- |');
   const diffs = changes.map((change) => ({ change, diff: unifiedDiff(change.before, change.content) }));
   for (const { change, diff } of diffs) {
     const rendered = change.origin === 'template' ? `, a workflow template rendered with \`$default-branch\` = \`${defaultBranch}\`` : '';
-    out.push(`| \`${WORKFLOWS}/${change.name}\` | [\`${change.sourcePath}\`](${sourceUrl}/blob/${ref}/${change.sourcePath})${rendered} | ${count(diff)} |`);
+    out.push(`| \`${change.path}\`${change.added ? ' (new)' : ''} | [\`${change.sourcePath}\`](${sourceUrl}/blob/${ref}/${change.sourcePath})${rendered} | ${count(diff)} |`);
   }
   let budget = DIFF_BUDGET;
   for (const { change, diff } of diffs) {
@@ -67,10 +74,17 @@ function pullRequestBody(inputs, { defaultBranch, changes, removals = [], versio
     }
     out.push('', '</details>');
   }
-  out.push(
-    '',
-    `Only \`.yml\` and \`.yaml\` workflows that this repository already has, under the same file name as in the source, are updated. No workflow is added, one is removed only when the source retired it, and \`actions.lock\` is not synced.`,
-  );
+  const scope = [
+    inputs.add
+      ? 'Workflows are synced by file name: `.yml` and `.yaml` files only. Every workflow in `.github/workflows` of the source is kept here, and added when it is missing. A workflow template is only updated where this repository already has a copy.'
+      : 'Workflows are synced by file name: only `.yml` and `.yaml` workflows that this repository already has are updated, and none is added.',
+    'A workflow is removed only when the source retired it, and `actions.lock` is not synced.',
+  ];
+  if (inputs.files?.size) {
+    const names = [...inputs.files].map((file) => `\`${file}\``).join(', ');
+    scope.push(`Also synced, as ${inputs.files.size === 1 ? 'it is' : 'they are'} in the source: ${names}.`);
+  }
+  out.push('', scope.join(' '));
   if (versionOnly.length) {
     const names = versionOnly.map((name) => `\`${name}\``).join(', ');
     out.push('', `Not updated: ${names} ${versionOnly.length === 1 ? 'differs' : 'differ'} from the source only in the versions ${versionOnly.length === 1 ? 'it references' : 'they reference'}, which Renovate updates.`);
