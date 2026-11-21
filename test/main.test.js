@@ -328,3 +328,111 @@ test('an open pull request is rebuilt when a copy it leaves alone changed on the
   assert.equal(result, 'updated');
   assert.equal(github.filesAt('sync/workflows')[`${W}/codeql.yml`], caller('v1.3.0'));
 });
+
+const POLICY = '.github/egress-firewall.yaml';
+
+test('without add, a workflow or a file the repository lacks is not added', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  const { result } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v1\n', [`${W}/new.yml`]: 'new\n', [POLICY]: 'mode: log\n' }, SYNC_FILES: POLICY });
+  assert.equal(result, 'up-to-date');
+  assert.deepEqual(writes(github), []);
+});
+
+test('with add, the workflows of the source the repository lacks are added, but no template', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n', [`${W}/own.yml`]: 'own\n' } });
+  const { result, core } = await run(t, {
+    github,
+    source: {
+      [`${W}/codeql.yml`]: 'v2\n',
+      [`${W}/new.yml`]: 'a\nb\n',
+      [`${W}/unwanted.yml`]: 'no\n',
+      [`${W}/actions.lock`]: 'lock\n',
+      'workflow-templates/typescript.yml': 'on: push\n',
+    },
+    SYNC_ADD: 'true',
+    SYNC_EXCLUDE: 'unwanted.yml',
+  });
+  assert.equal(result, 'created');
+  assert.equal(core.outputs.changed, '["codeql.yml","new.yml"]');
+  assert.equal(core.outputs.added, '["new.yml"]');
+  assert.deepEqual(github.filesAt('sync/workflows'), { [`${W}/codeql.yml`]: 'v2\n', [`${W}/own.yml`]: 'own\n', [`${W}/new.yml`]: 'a\nb\n' });
+  const [pull] = github.pulls;
+  assert.match(pull.body, /Updates 1 workflow of this repository to match /);
+  assert.match(pull.body, /Adds 1 workflow of \[acme\/\.github\]\([^)]+\) at \[`aaaaaaa`\]\([^)]+\) that this repository doesn't have yet\./);
+  assert.match(pull.body, /\| `\.github\/workflows\/new\.yml` \(new\) \| .* \| \+2 −0 \|/);
+  assert.match(pull.body, /```diff\n@@ -0,0 \+1,2 @@\n\+a\n\+b\n```/);
+  assert.match(github.commit(github.refs.get('sync/workflows')).message, /- \.github\/workflows\/new\.yml added from \.github\/workflows\/new\.yml/);
+
+  // The next run finds the pull request holding the addition, and leaves it alone.
+  const again = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n', [`${W}/new.yml`]: 'a\nb\n' }, SYNC_ADD: 'true' });
+  assert.equal(again.result, 'unchanged');
+});
+
+test('add works in a repository without workflows, and a dry run only reports', async (t) => {
+  const github = mockGithub({ files: { 'README.md': 'hello\n' } });
+  const dry = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_ADD: 'true', SYNC_DRY_RUN: 'true' });
+  assert.equal(dry.result, 'dry-run');
+  assert.equal(dry.core.outputs.added, '["codeql.yml"]');
+  assert.match(dry.core.notices[0], /codeql\.yml would be added from/);
+  assert.deepEqual(writes(github), []);
+  assert.equal((await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_ADD: 'true' })).result, 'created');
+  assert.equal(github.filesAt('sync/workflows')[`${W}/codeql.yml`], 'v2\n');
+});
+
+test('a file named in files is updated to match the source, versions included', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n', [POLICY]: 'mode: log\nallow:\n  - a.example\n' } });
+  const source = { [`${W}/codeql.yml`]: 'v1\n', [POLICY]: 'mode: log\nallow:\n  - a.example\n  - b.example\n', '.github/labels.yml': 'x\n' };
+  const { result, core } = await run(t, { github, source, SYNC_FILES: POLICY, SYNC_IGNORE_VERSIONS: 'true' });
+  assert.equal(result, 'created');
+  assert.equal(core.outputs.changed, `["${POLICY}"]`);
+  assert.equal(core.outputs.added, '[]');
+  assert.deepEqual(github.calls[0].paths, [POLICY]);
+  assert.equal(github.filesAt('sync/workflows')[POLICY], source[POLICY]);
+  assert.equal(github.filesAt('sync/workflows')['.github/labels.yml'], undefined);
+  const [pull] = github.pulls;
+  assert.match(pull.body, /Updates 1 file of this repository to match /);
+  assert.match(pull.body, new RegExp(`\\| \`\\.github/egress-firewall\\.yaml\` \\| \\[\`\\.github/egress-firewall\\.yaml\`\\]\\(https://github\\.com/acme/\\.github/blob/${SOURCE_SHA}/\\.github/egress-firewall\\.yaml\\) \\| \\+1 −0 \\|`));
+  assert.match(pull.body, /Also synced, as it is in the source: `\.github\/egress-firewall\.yaml`\./);
+
+  // Left alone while the pull request holds it; rebuilt when the source moves on.
+  assert.equal((await run(t, { github, source, SYNC_FILES: POLICY })).result, 'unchanged');
+  assert.equal((await run(t, { github, source: { ...source, [POLICY]: 'mode: enforce\n' }, SYNC_FILES: POLICY })).result, 'updated');
+  assert.equal(github.filesAt('sync/workflows')[POLICY], 'mode: enforce\n');
+
+  // Closed once the default branch has the source's policy.
+  github.push('main', { [POLICY]: 'mode: enforce\n' });
+  assert.equal((await run(t, { github, source: { ...source, [POLICY]: 'mode: enforce\n' }, SYNC_FILES: POLICY })).result, 'closed');
+});
+
+test('a file named in files is added with add, and skipped when excluded or not in the source', async (t) => {
+  const source = { [`${W}/codeql.yml`]: 'v1\n', [POLICY]: 'mode: log\n' };
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  const { result, core } = await run(t, { github, source, SYNC_FILES: POLICY, SYNC_ADD: 'true' });
+  assert.equal(result, 'created');
+  assert.equal(core.outputs.added, `["${POLICY}"]`);
+  assert.equal(github.filesAt('sync/workflows')[POLICY], 'mode: log\n');
+  assert.match(github.pulls[0].body, /Adds 1 file of /);
+
+  const excluded = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n', [POLICY]: 'local\n' } });
+  assert.equal((await run(t, { github: excluded, source, SYNC_FILES: POLICY, SYNC_ADD: 'true', SYNC_EXCLUDE: POLICY })).result, 'up-to-date');
+
+  const missing = await run(t, { github: mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n', 'other.yaml': 'x\n' } }), source, SYNC_FILES: `${POLICY}, other.yaml`, SYNC_ADD: 'true' });
+  assert.match(missing.core.warnings[0], /files lists other\.yaml, but the source checkout has no such file/);
+  assert.equal(missing.core.outputs.changed, `["${POLICY}"]`);
+});
+
+test('files only takes paths of files outside the workflow directories', async (t) => {
+  for (const [files, message] of [
+    ['../secrets.yaml', /not a path of a file in the repository/],
+    ['/etc/passwd', /not a path of a file in the repository/],
+    ['.git/config', /not a path of a file in the repository/],
+    [`${W}/codeql.yml`, /synced by file name/],
+    ['docs', /not a file in this repository/],
+  ]) {
+    const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n', 'docs/a.md': 'x\n' } });
+    const { result, core } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n', docs: 'x\n' }, SYNC_FILES: files, SYNC_ADD: 'true' });
+    assert.equal(result, 'error', files);
+    assert.match(core.failed[0], message);
+    assert.deepEqual(writes(github), []);
+  }
+});

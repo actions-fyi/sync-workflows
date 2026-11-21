@@ -39,6 +39,16 @@ function parseInputs(env) {
   for (const name of remove) {
     if (!WORKFLOW_FILE.test(name)) throw new ConfigError(`remove lists "${name}", which is not a .yml or .yaml file name.`);
   }
+  const files = new Set(list(env.SYNC_FILES).map((file) => file.replace(/^\.\//, '')));
+  for (const file of files) {
+    // A path inside the repository, as git writes it. The workflow directories go by file name.
+    if (/^\/|\\|(^|\/)\.{1,2}(\/|$)|\/\/|\/$|^\.git(\/|$)/.test(file)) {
+      throw new ConfigError(`files lists "${file}", which is not a path of a file in the repository.`);
+    }
+    if (/^(\.github\/workflows|workflow-templates)\//.test(file)) {
+      throw new ConfigError(`files lists "${file}", but workflows and workflow templates are synced by file name, not as files.`);
+    }
+  }
   return {
     sourceRepository,
     sourcePath: (env.SYNC_SOURCE_PATH ?? '').trim() || '.',
@@ -47,6 +57,8 @@ function parseInputs(env) {
     title,
     exclude: new Set(list(env.SYNC_EXCLUDE)),
     remove,
+    files,
+    add: bool(env, 'SYNC_ADD', false),
     ignoreVersions: bool(env, 'SYNC_IGNORE_VERSIONS', false),
     dryRun: bool(env, 'SYNC_DRY_RUN', false),
     workspace: env.GITHUB_WORKSPACE || process.cwd(),

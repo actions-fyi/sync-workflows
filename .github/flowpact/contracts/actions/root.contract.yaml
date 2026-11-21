@@ -7,6 +7,10 @@ path: .
 name: Sync Workflows
 interface:
   inputs:
+    add:
+      required: false
+      default: 'false'
+      description: "Also add what the repository lacks: every workflow in the source's .github/workflows, and every path in files. A workflow template is never added."
     branch:
       required: false
       default: sync/workflows
@@ -18,7 +22,11 @@ interface:
     exclude:
       required: false
       default: ''
-      description: Workflow file names that are never synced, separated by newlines or commas.
+      description: Workflow file names, and paths from files, that are never synced or added, separated by newlines or commas.
+    files:
+      required: false
+      default: ''
+      description: Paths of other files of the source to sync to the same path, separated by newlines or commas, e.g. .github/egress-firewall.yaml. Each is copied as it is and compared as a whole.
     github-token:
       required: false
       default: ${{ github.token }}
@@ -47,8 +55,11 @@ interface:
       default: ''
       description: 'The commit''s subject and the pull request''s title. Empty means "ci: sync workflows from <source-repository>".'
   outputs:
+    added:
+      description: A JSON array of those in changed that the repository didn't have.
+      value: ${{ steps.sync.outputs.added }}
     changed:
-      description: A JSON array of the workflow file names that differ from the source.
+      description: A JSON array of the workflow file names, and the paths from files, that differ from the source or are added.
       value: ${{ steps.sync.outputs.changed }}
     pull-request-number:
       description: The number of the sync pull request, or empty when there is none.
@@ -67,8 +78,10 @@ consumers:
     job: workflows
     step: '#4'
     passes:
+      - add
       - dry-run
       - exclude
+      - files
       - github-token
       - ignore-versions
       - remove

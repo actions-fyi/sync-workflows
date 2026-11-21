@@ -8,8 +8,8 @@
 //
 // The result is one of:
 //   skipped     the target is the source
-//   up-to-date  every copy matches the source, no retired workflow is left, and no sync pull
-//               request is open
+//   up-to-date  every copy matches the source, nothing is missing, no retired workflow is left,
+//               and no sync pull request is open
 //   closed      the same, so the open sync pull request was closed
 //   created     a pull request was opened
 //   updated     the branch of the open pull request was rebuilt and its description rewritten
@@ -23,6 +23,15 @@
 // copy counts as matching: it opens no pull request, and it doesn't keep one open. A copy that
 // differs in anything else is replaced by the source's, versions included.
 //
+// Other files: a path in `files` is a file of the source that isn't a workflow, such as the
+// egress firewall's policy, which the synced workflows run under. It is copied as it is to the
+// same path, and compared as a whole: versions are never ignored in it.
+//
+// Adding: without `add`, only the copies the target already has are updated. With it, the target
+// also gets what it lacks: every workflow in the source's .github/workflows, and every path in
+// `files`. A workflow template is never added: it is for the repositories that picked it. An
+// excluded name or path is never added, which is how a repository keeps one out.
+//
 // Retired workflows: a name in `remove` is a workflow the source used to offer and withdrew. A
 // target that still has it loses it in the same pull request. A name the source still has isn't
 // retired, so it is kept with a warning, whichever of the two is changed first. An excluded name
@@ -30,7 +39,7 @@
 
 const path = require('node:path');
 const { ConfigError, parseInputs } = require('./inputs');
-const { WORKFLOWS, WORKFLOW_FILE, readSource, render, blobSha } = require('./source');
+const { WORKFLOWS, WORKFLOW_FILE, readSource, readSourceFile, render, blobSha } = require('./source');
 const { commitMessage, pullRequestBody } = require('./describe');
 const { differOnlyInVersions } = require('./versions');
 
@@ -49,6 +58,19 @@ async function listWorkflows(github, repo, ref) {
   }
   if (!Array.isArray(data)) return new Map();
   return new Map(data.filter((entry) => entry.type === 'file' && WORKFLOW_FILE.test(entry.name)).map((entry) => [entry.name, entry.sha]));
+}
+
+// The blob SHA of a file of the target at a commit, or null when it isn't there.
+async function fileSha(github, repo, file, ref) {
+  let data;
+  try {
+    ({ data } = await github.rest.repos.getContent({ ...repo, path: file, ref }));
+  } catch (error) {
+    if (isStatus(error, 404)) return null;
+    throw error;
+  }
+  if (Array.isArray(data) || data.type !== 'file') throw new ConfigError(`files lists ${file}, which is not a file in this repository.`);
+  return data.sha;
 }
 
 async function getBranch(github, repo, branch) {
@@ -82,9 +104,10 @@ async function setBranch(github, repo, branch, sha, exists) {
   await github.rest.git.updateRef({ ...repo, ref: `heads/${branch}`, sha, force: true });
 }
 
-function setOutputs(core, { result, changed = [], removed = [], pullRequest = null }) {
+function setOutputs(core, { result, changed = [], added = [], removed = [], pullRequest = null }) {
   core.setOutput('result', result);
   core.setOutput('changed', JSON.stringify(changed));
+  core.setOutput('added', JSON.stringify(added));
   core.setOutput('removed', JSON.stringify(removed));
   core.setOutput('pull-request-number', pullRequest ? String(pullRequest.number) : '');
   core.setOutput('pull-request-url', pullRequest?.html_url ?? '');
@@ -100,7 +123,8 @@ async function sync({ github, context, core, inputs }) {
     return setOutputs(core, { result: 'skipped' });
   }
 
-  const { files: source, collisions } = readSource(path.resolve(inputs.workspace, inputs.sourcePath));
+  const root = path.resolve(inputs.workspace, inputs.sourcePath);
+  const { files: source, collisions } = readSource(root);
   if (source.size === 0) {
     throw new ConfigError(`No workflow was found in ${WORKFLOWS} or workflow-templates of the source checkout at "${inputs.sourcePath}".`);
   }
@@ -111,19 +135,34 @@ async function sync({ github, context, core, inputs }) {
   const baseSha = base.commit.sha;
   const existing = await listWorkflows(github, repo, baseSha);
 
-  // Every copy the target has, with the content it should have. `changes` are those that differ.
+  // Every file the target should have a copy of, with the content it should have: the copies it
+  // has and, with `add`, those it lacks. `currentSha` is null for one it lacks. `changes` are
+  // those that differ or are missing.
   const copies = [];
-  for (const [name, sha] of existing) {
-    const file = source.get(name);
-    if (!file || inputs.exclude.has(name)) continue;
+  for (const [name, file] of source) {
+    if (inputs.exclude.has(name)) continue;
+    const currentSha = existing.get(name) ?? null;
+    // A template is for the repositories that picked it, so it is never added.
+    if (currentSha === null && !(inputs.add && file.origin === 'workflow')) continue;
     const rendered = render(file, defaultBranch);
     if (rendered.unsupported) {
       core.warning(`${file.path} uses ${rendered.unsupported.join(', ')}, which can't be synced. Skipping ${name}.`);
       continue;
     }
-    copies.push({ name, origin: file.origin, sourcePath: file.path, content: rendered.content, sha: blobSha(rendered.content), currentSha: sha });
+    copies.push({ name, path: `${WORKFLOWS}/${name}`, origin: file.origin, sourcePath: file.path, content: rendered.content, sha: blobSha(rendered.content), currentSha });
   }
-  const used = collisions.filter((name) => copies.some((copy) => copy.name === name));
+  for (const file of inputs.files) {
+    if (inputs.exclude.has(file)) continue;
+    const content = readSourceFile(root, file);
+    if (content === null) {
+      core.warning(`files lists ${file}, but the source checkout has no such file. Skipping ${file}.`);
+      continue;
+    }
+    const currentSha = await fileSha(github, repo, file, baseSha);
+    if (currentSha === null && !inputs.add) continue;
+    copies.push({ name: file, path: file, origin: 'file', sourcePath: file, content, sha: blobSha(content), currentSha });
+  }
+  const used = collisions.filter((name) => copies.some((copy) => copy.origin !== 'file' && copy.name === name));
   for (const name of used) {
     core.warning(`The source has ${name} in both ${WORKFLOWS} and workflow-templates. Using ${WORKFLOWS}/${name}.`);
   }
@@ -131,11 +170,18 @@ async function sync({ github, context, core, inputs }) {
   const versionOnly = [];
   for (const copy of copies) {
     if (copy.sha === copy.currentSha) continue;
+    if (copy.currentSha === null) {
+      copy.before = '';
+      copy.added = true;
+      changes.push(copy);
+      continue;
+    }
     copy.before = await readBlob(github, repo, copy.currentSha);
-    if (inputs.ignoreVersions && differOnlyInVersions(copy.before, copy.content)) versionOnly.push(copy.name);
+    if (inputs.ignoreVersions && copy.origin !== 'file' && differOnlyInVersions(copy.before, copy.content)) versionOnly.push(copy.name);
     else changes.push(copy);
   }
   const changed = changes.map((change) => change.name);
+  const added = changes.filter((change) => change.added).map((change) => change.name);
   if (versionOnly.length) {
     core.info(`${versionOnly.join(', ')} differ from the source only in the versions they reference, and are left to Renovate.`);
   }
@@ -149,7 +195,7 @@ async function sync({ github, context, core, inputs }) {
     removals.push({ name, currentSha: existing.get(name) });
   }
   const removed = removals.map((removal) => removal.name);
-  core.info(`${copies.length} of the ${existing.size} workflows of ${inputs.repository} are copies of a workflow of ${sourceRepository}; ${changes.length} differ. ${removals.length} retired workflows are left.`);
+  core.info(`${copies.length} files of ${sourceRepository} are synced to ${inputs.repository}; ${changes.length - added.length} differ and ${added.length} are missing. ${removals.length} retired workflows are left.`);
 
   const { data: open } = await github.rest.pulls.list({ ...repo, state: 'open', head: `${repo.owner}:${branch}`, base: defaultBranch, per_page: 1 });
   let pullRequest = open[0] ?? null;
@@ -177,27 +223,33 @@ async function sync({ github, context, core, inputs }) {
     return setOutputs(core, { result: 'closed', pullRequest });
   }
 
-  for (const change of changes) core.info(`  ${WORKFLOWS}/${change.name} differs from ${change.sourcePath}`);
+  for (const change of changes) core.info(`  ${change.path} ${change.added ? 'is missing; the source has' : 'differs from'} ${change.sourcePath}`);
   for (const removal of removals) core.info(`  ${WORKFLOWS}/${removal.name} is retired`);
   if (dryRun) {
     const plans = [];
-    if (changed.length) plans.push(`${changed.join(', ')} would be updated from ${sourceRepository}`);
+    const updated = changed.filter((name) => !added.includes(name));
+    if (updated.length) plans.push(`${updated.join(', ')} would be updated from ${sourceRepository}`);
+    if (added.length) plans.push(`${added.join(', ')} would be added from ${sourceRepository}`);
     if (removed.length) plans.push(`${removed.join(', ')} would be removed`);
     core.notice(`Dry run: ${plans.join('; ')}.`);
-    return setOutputs(core, { result: 'dry-run', changed, removed, pullRequest });
+    return setOutputs(core, { result: 'dry-run', changed, added, removed, pullRequest });
   }
 
   // The open pull request is left alone when its branch already has every copy as it should be
   // and no retired workflow, so a daily run doesn't restart its checks or drop commits that a fix
   // job added to it. A copy that isn't updated should be on the branch as it is on the default
-  // branch.
+  // branch. A file from `files` isn't in the workflow listing, so it is looked up by its path.
   const branchSha = await getBranch(github, repo, branch);
   if (pullRequest && branchSha) {
     const onBranch = await listWorkflows(github, repo, branchSha);
+    for (const copy of copies) {
+      if (copy.origin === 'file') onBranch.set(copy.path, await fileSha(github, repo, copy.path, branchSha));
+    }
     const wanted = (copy) => (changes.includes(copy) ? copy.sha : copy.currentSha);
-    if (copies.every((copy) => onBranch.get(copy.name) === wanted(copy)) && removals.every((removal) => !onBranch.has(removal.name))) {
+    const held = (copy) => onBranch.get(copy.origin === 'file' ? copy.path : copy.name);
+    if (copies.every((copy) => held(copy) === wanted(copy)) && removals.every((removal) => !onBranch.has(removal.name))) {
       core.notice(`#${pullRequest.number} already holds these changes: ${pullRequest.html_url}`);
-      return setOutputs(core, { result: 'unchanged', changed, removed, pullRequest });
+      return setOutputs(core, { result: 'unchanged', changed, added, removed, pullRequest });
     }
   }
 
@@ -206,7 +258,7 @@ async function sync({ github, context, core, inputs }) {
     base_tree: base.commit.commit.tree.sha,
     // An entry without a blob deletes the path.
     tree: [
-      ...changes.map((change) => ({ path: `${WORKFLOWS}/${change.name}`, mode: '100644', type: 'blob', content: change.content })),
+      ...changes.map((change) => ({ path: change.path, mode: '100644', type: 'blob', content: change.content })),
       ...removals.map((removal) => ({ path: `${WORKFLOWS}/${removal.name}`, mode: '100644', type: 'blob', sha: null })),
     ],
   });
@@ -224,7 +276,7 @@ async function sync({ github, context, core, inputs }) {
     result = 'created';
   }
   core.notice(`Pull request #${pullRequest.number} ${result}: ${pullRequest.html_url}`);
-  return setOutputs(core, { result, changed, removed, pullRequest });
+  return setOutputs(core, { result, changed, added, removed, pullRequest });
 }
 
 module.exports = async function main({ github, context, core, env = process.env }) {

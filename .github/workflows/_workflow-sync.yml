@@ -13,12 +13,24 @@ name: Sync
 # branch of actions-fyi/.github.
 #
 # What the workflows job does:
-# - Checks out .github/workflows and workflow-templates of actions-fyi/.github, the source.
+# - Checks out .github/workflows and workflow-templates of actions-fyi/.github, the source. The
+#   sparse checkout is in cone mode, which also brings the files directly in .github, the egress
+#   firewall's policy among them.
 # - Runs this repository's action, which compares the repository's workflows with the source's
-#   by file name. Only .yml and .yaml copies the repository already has are updated: a workflow
-#   it doesn't have is never added, one only it has is never touched, and actions.lock is never
-#   synced. A name in both source directories is taken from .github/workflows. In a workflow
-#   template, $default-branch becomes the repository's default branch.
+#   by file name. Only .yml and .yaml files are synced: a workflow only the repository has is
+#   never touched, and actions.lock is never synced. A name in both source directories is taken
+#   from .github/workflows. In a workflow template, $default-branch becomes the repository's
+#   default branch.
+# - Adds the workflows of the source's .github/workflows that the repository doesn't have yet:
+#   everything there is meant for every repository of the org, so a new workflow reaches them
+#   all without a pull request in each. A workflow template is only updated where a repository
+#   already has a copy: it is for the repositories that picked it.
+# - Syncs .github/egress-firewall.yaml, the egress firewall's policy, the same way, and adds it
+#   where it is missing. The synced workflows run under that policy, so a workflow that needs a
+#   new host and the policy that allows it arrive in the same pull request. The policy is
+#   replaced as a whole: a host only one repository needs belongs in the source's policy.
+# - Skips the names and paths in the repository's WORKFLOW_SYNC_EXCLUDE variable, separated by
+#   commas or newlines. That is how a repository keeps a workflow out, or keeps its own policy.
 # - Leaves a copy that differs from the source only in the versions it references, such as the
 #   tag of a shared workflow it calls. Renovate updates those in every repository from the same
 #   releases, so syncing them would open a second pull request for the same change. A copy that
@@ -122,7 +134,9 @@ jobs:
           source-path: source
           source-sha: ${{ steps.source.outputs.commit }}
           github-token: ${{ steps.sts.outputs.token }}
-          exclude: ${{ github.repository == 'actions-fyi/sync-workflows' && 'workflow-sync.yml' || '' }}
+          exclude: ${{ format('{0},{1}', vars.WORKFLOW_SYNC_EXCLUDE, github.repository == 'actions-fyi/sync-workflows' && 'workflow-sync.yml' || '') }}
           remove: ${{ env.RETIRED }}
+          files: .github/egress-firewall.yaml
+          add: true
           ignore-versions: true
           dry-run: ${{ inputs.dry-run }}
