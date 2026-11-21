@@ -10,7 +10,7 @@ interface:
     add:
       required: false
       default: 'false'
-      description: 'Also add what the repository lacks: every workflow in the source''s .github/workflows, and every path in files. A workflow template is never added.'
+      description: "Also add what the repository lacks: every workflow in the source's .github/workflows, and every path in files. A workflow template is never added."
     branch:
       required: false
       default: sync/workflows
