@@ -16,7 +16,7 @@ function withoutWhitespace(text) {
     .split('\n')
     .map((line) => {
       const indent = line.match(/^[ \t]*/)[0];
-      return indent + line.slice(indent.length).replace(/\s+$/, '').replace(/[ \t]+/g, ' ');
+      return indent + line.slice(indent.length).trimEnd().replace(/[ \t]+/g, ' ');
     })
     .filter((line) => line.trim() !== '')
     .join('\n');
