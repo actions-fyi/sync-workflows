@@ -89,6 +89,13 @@ inputs:
       a `uses:`, as it is. For repositories where Renovate updates those versions.
     required: false
     default: "false"
+  ignore-whitespace:
+    description: >-
+      Leave a copy that differs from the source only in whitespace as it is: the spacing inside a
+      line, trailing whitespace and blank lines, but not indentation. For repositories that run a
+      formatter, which would only respace the sync's changes back. Applies to files too.
+    required: false
+    default: "true"
   dry-run:
     description: Report which copies differ, but make no changes on GitHub.
     required: false
@@ -134,6 +141,7 @@ runs:
         SYNC_FILES: ${{ inputs.files }}
         SYNC_ADD: ${{ inputs.add }}
         SYNC_IGNORE_VERSIONS: ${{ inputs.ignore-versions }}
+        SYNC_IGNORE_WHITESPACE: ${{ inputs.ignore-whitespace }}
         SYNC_DRY_RUN: ${{ inputs.dry-run }}
       with:
         github-token: ${{ inputs.github-token }}

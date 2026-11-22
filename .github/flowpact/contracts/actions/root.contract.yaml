@@ -35,6 +35,10 @@ interface:
       required: false
       default: 'false'
       description: Leave a copy that differs from the source only in the versions it references, e.g. the ref of a `uses:`, as it is. For repositories where Renovate updates those versions.
+    ignore-whitespace:
+      required: false
+      default: 'true'
+      description: "Leave a copy that differs from the source only in whitespace as it is: the spacing inside a line, trailing whitespace and blank lines, but not indentation. For repositories that run a formatter, which would only respace the sync's changes back. Applies to files too."
     remove:
       required: false
       default: ''

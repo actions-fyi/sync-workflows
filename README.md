@@ -30,12 +30,20 @@ The rules:
 - A name in both source directories is taken from `.github/workflows`, with a warning.
 - A template that uses `$protected-branches`, `$cron-daily` or `$cron-weekly` is skipped with a
   warning: those have no single right value to compare a copy with.
-- A copy is compared as a whole, so a local edit to it is reverted by the next sync.
+- A copy is compared as a whole, so a local edit to it is reverted by the next sync, unless it
+  only changes whitespace or, with `ignore-versions`, versions; see below.
 - With `ignore-versions`, a copy that differs only in the versions it references is left as it
   is: the ref of a `uses:`, with a version comment after it, and the value on the line after a
   `# renovate:` annotation. Renovate updates those, so a sync of nothing else would duplicate its
   pull request. Such a copy counts as matching. A copy that differs in anything else is replaced
-  by the source's, versions included. A file from `files` is always compared as a whole.
+  by the source's, versions included. Versions in a file from `files` are never ignored.
+- Unless `ignore-whitespace` is `false`, a copy that differs only in whitespace is left as it is:
+  the length of a run of spaces inside a line, such as the spaces that align comments, trailing
+  whitespace and blank lines. Indentation counts, since it is YAML's structure. A repository that
+  runs a formatter respaces what the sync brings in, so a sync of nothing else would only be
+  formatted back, and the next would bring the same spacing in again. Such a copy, workflow or
+  file, counts as matching, and an open pull request whose branch a formatter respaced is left
+  alone. A copy that differs in anything else is replaced by the source's, spacing included.
 
 ## The pull request
 
@@ -91,6 +99,7 @@ The token needs contents, pull requests and workflows write on the repository. T
 | `add` | `false` | Also add the workflows of the source's `.github/workflows`, and the `files`, the repository lacks. |
 | `remove` | | File names the source retired, removed where a copy is left. |
 | `ignore-versions` | `false` | Leave copies that differ only in the versions they reference. |
+| `ignore-whitespace` | `true` | Leave copies that differ only in whitespace, not indentation. |
 | `dry-run` | `false` | Report the copies that differ, change nothing. |
 
 | Output | |

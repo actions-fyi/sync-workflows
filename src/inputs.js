@@ -60,6 +60,7 @@ function parseInputs(env) {
     files,
     add: bool(env, 'SYNC_ADD', false),
     ignoreVersions: bool(env, 'SYNC_IGNORE_VERSIONS', false),
+    ignoreWhitespace: bool(env, 'SYNC_IGNORE_WHITESPACE', true),
     dryRun: bool(env, 'SYNC_DRY_RUN', false),
     workspace: env.GITHUB_WORKSPACE || process.cwd(),
     serverUrl: (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/, ''),
