@@ -30,7 +30,8 @@ The rules:
 - A name in both source directories is taken from `.github/workflows`, with a warning.
 - A template that uses `$protected-branches`, `$cron-daily` or `$cron-weekly` is skipped with a
   warning: those have no single right value to compare a copy with.
-- A copy is compared as a whole, so a local edit to it is reverted by the next sync.
+- A copy is compared as a whole, so a local edit to it is reverted by the next sync, unless it
+  only changes whitespace or, with `ignore-versions`, versions; see below.
 - With `ignore-versions`, a copy that differs only in the versions it references is left as it
   is: the ref of a `uses:`, with a version comment after it, and the value on the line after a
   `# renovate:` annotation. Renovate updates those, so a sync of nothing else would duplicate its
