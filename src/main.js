@@ -23,6 +23,13 @@
 // copy counts as matching: it opens no pull request, and it doesn't keep one open. A copy that
 // differs in anything else is replaced by the source's, versions included.
 //
+// Whitespace: unless ignore-whitespace is false, a copy that differs from the source only in
+// whitespace, but not in indentation, is left as it is too. A repository that runs a formatter
+// respaces what the sync brings in, as oxfmt does to aligned comments, so a sync of nothing else
+// would only be formatted back, and the next sync would bring the same spacing in again. Such a
+// copy counts as matching, whatever it is, files included. For the same reason, an open pull
+// request whose branch a formatter respaced is left alone.
+//
 // Other files: a path in `files` is a file of the source that isn't a workflow, such as the
 // egress firewall's policy, which the synced workflows run under. It is copied as it is to the
 // same path, and compared as a whole: versions are never ignored in it.
@@ -42,6 +49,7 @@ const { ConfigError, parseInputs } = require('./inputs');
 const { WORKFLOWS, WORKFLOW_FILE, readSource, readSourceFile, render, blobSha } = require('./source');
 const { commitMessage, pullRequestBody } = require('./describe');
 const { differOnlyInVersions } = require('./versions');
+const { withoutWhitespace, differOnlyInWhitespace } = require('./whitespace');
 
 function isStatus(error, ...statuses) {
   return statuses.includes(error?.status);
@@ -168,6 +176,8 @@ async function sync({ github, context, core, inputs }) {
   }
   const changes = [];
   const versionOnly = [];
+  const whitespaceOnly = [];
+  const normalize = (text) => (inputs.ignoreWhitespace ? withoutWhitespace(text) : text);
   for (const copy of copies) {
     if (copy.sha === copy.currentSha) continue;
     if (copy.currentSha === null) {
@@ -177,13 +187,17 @@ async function sync({ github, context, core, inputs }) {
       continue;
     }
     copy.before = await readBlob(github, repo, copy.currentSha);
-    if (inputs.ignoreVersions && copy.origin !== 'file' && differOnlyInVersions(copy.before, copy.content)) versionOnly.push(copy.name);
+    if (inputs.ignoreWhitespace && differOnlyInWhitespace(copy.before, copy.content)) whitespaceOnly.push(copy.name);
+    else if (inputs.ignoreVersions && copy.origin !== 'file' && differOnlyInVersions(normalize(copy.before), normalize(copy.content))) versionOnly.push(copy.name);
     else changes.push(copy);
   }
   const changed = changes.map((change) => change.name);
   const added = changes.filter((change) => change.added).map((change) => change.name);
   if (versionOnly.length) {
     core.info(`${versionOnly.join(', ')} differ from the source only in the versions they reference, and are left to Renovate.`);
+  }
+  if (whitespaceOnly.length) {
+    core.info(`${whitespaceOnly.join(', ')} differ from the source only in whitespace, and are left to the repository's formatter.`);
   }
   const removals = [];
   for (const name of inputs.remove) {
@@ -206,11 +220,15 @@ async function sync({ github, context, core, inputs }) {
       core.notice(`Dry run: would close #${pullRequest.number}, because ${defaultBranch} now matches the source.`);
       return setOutputs(core, { result: 'dry-run', pullRequest });
     }
+    const left = [
+      ...(versionOnly.length ? ['in the versions they reference, which Renovate updates'] : []),
+      ...(whitespaceOnly.length ? ["in whitespace, which the repository's formatter sets"] : []),
+    ];
     await github.rest.issues.createComment({
       ...repo,
       issue_number: pullRequest.number,
-      body: versionOnly.length
-        ? `Closing: the workflows on \`${defaultBranch}\` now differ from ${sourceRepository} only in the versions they reference, which Renovate updates, so there is nothing left to sync.`
+      body: left.length
+        ? `Closing: the workflows on \`${defaultBranch}\` now differ from ${sourceRepository} only ${left.join(', and ')}, so there is nothing left to sync.`
         : `Closing: the workflows on \`${defaultBranch}\` now match ${sourceRepository}, so there is nothing left to sync.`,
     });
     await github.rest.pulls.update({ ...repo, pull_number: pullRequest.number, state: 'closed' });
@@ -239,15 +257,26 @@ async function sync({ github, context, core, inputs }) {
   // and no retired workflow, so a daily run doesn't restart its checks or drop commits that a fix
   // job added to it. A copy that isn't updated should be on the branch as it is on the default
   // branch. A file from `files` isn't in the workflow listing, so it is looked up by its path.
+  // Unless ignore-whitespace is false, a copy a formatter respaced on the branch is as it should be.
   const branchSha = await getBranch(github, repo, branch);
   if (pullRequest && branchSha) {
     const onBranch = await listWorkflows(github, repo, branchSha);
     for (const copy of copies) {
       if (copy.origin === 'file') onBranch.set(copy.path, await fileSha(github, repo, copy.path, branchSha));
     }
-    const wanted = (copy) => (changes.includes(copy) ? copy.sha : copy.currentSha);
-    const held = (copy) => onBranch.get(copy.origin === 'file' ? copy.path : copy.name);
-    if (copies.every((copy) => held(copy) === wanted(copy)) && removals.every((removal) => !onBranch.has(removal.name))) {
+    const updated = (copy) => changes.includes(copy);
+    const holds = async (copy) => {
+      const wanted = updated(copy) ? copy.sha : copy.currentSha;
+      const held = onBranch.get(copy.origin === 'file' ? copy.path : copy.name) ?? null;
+      if (held === wanted) return true;
+      if (!inputs.ignoreWhitespace || held === null || wanted === null) return false;
+      // A copy left alone that differs from the source has its default branch content in before.
+      const content = updated(copy) || copy.sha === copy.currentSha ? copy.content : copy.before;
+      return withoutWhitespace(await readBlob(github, repo, held)) === withoutWhitespace(content);
+    };
+    let holdsAll = removals.every((removal) => !onBranch.has(removal.name));
+    for (const copy of copies) holdsAll &&= await holds(copy);
+    if (holdsAll) {
       core.notice(`#${pullRequest.number} already holds these changes: ${pullRequest.html_url}`);
       return setOutputs(core, { result: 'unchanged', changed, added, removed, pullRequest });
     }
@@ -266,7 +295,7 @@ async function sync({ github, context, core, inputs }) {
   const { data: commit } = await github.rest.git.createCommit({ ...repo, message: commitMessage(inputs, changes, removals), tree: tree.sha, parents: [baseSha] });
   await setBranch(github, repo, branch, commit.sha, branchSha !== null);
 
-  const body = pullRequestBody(inputs, { defaultBranch, changes, removals, versionOnly, collisions: used });
+  const body = pullRequestBody(inputs, { defaultBranch, changes, removals, versionOnly, whitespaceOnly, collisions: used });
   let result;
   if (pullRequest) {
     ({ data: pullRequest } = await github.rest.pulls.update({ ...repo, pull_number: pullRequest.number, title, body }));

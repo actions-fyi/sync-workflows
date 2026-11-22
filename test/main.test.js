@@ -331,6 +331,70 @@ test('an open pull request is rebuilt when a copy it leaves alone changed on the
 
 const POLICY = '.github/egress-firewall.yaml';
 
+// The source aligns its comments; the repository's formatter doesn't.
+const ALIGNED = 'mode: log\nallow:\n  - api.github.com       # the API\n  - ghcr.io              # images\n';
+const FORMATTED = 'mode: log\nallow:\n  - api.github.com # the API\n  - ghcr.io # images\n';
+
+test('a copy or a file that differs only in whitespace opens no pull request', async (t) => {
+  const github = mockGithub({ files: { [POLICY]: FORMATTED, [`${W}/codeql.yml`]: 'on:  push\n' } });
+  const source = { [POLICY]: ALIGNED, [`${W}/codeql.yml`]: 'on: push\n\n' };
+  const ignored = await run(t, { github, source, SYNC_FILES: POLICY });
+  assert.equal(ignored.result, 'up-to-date');
+  assert.equal(ignored.core.outputs.changed, '[]');
+  assert.deepEqual(writes(github), []);
+  assert.match(ignored.core.logs.join('\n'), /codeql\.yml, \.github\/egress-firewall\.yaml differ from the source only in whitespace/);
+  // With ignore-whitespace false, whitespace is a difference like any other.
+  const synced = await run(t, { github, source, SYNC_FILES: POLICY, SYNC_IGNORE_WHITESPACE: 'false' });
+  assert.equal(synced.result, 'created');
+  assert.equal(synced.core.outputs.changed, '["codeql.yml",".github/egress-firewall.yaml"]');
+});
+
+test('a copy that differs in more than whitespace is replaced, spacing included; a whitespace-only one is left', async (t) => {
+  const github = mockGithub({ files: { [POLICY]: FORMATTED, [`${W}/codeql.yml`]: 'on:  push\n' } });
+  const source = { [POLICY]: ALIGNED.replace('mode: log', 'mode: block'), [`${W}/codeql.yml`]: 'on: push\n' };
+  const { result, core } = await run(t, { github, source, SYNC_FILES: POLICY });
+  assert.equal(result, 'created');
+  assert.equal(core.outputs.changed, '[".github/egress-firewall.yaml"]');
+  assert.equal(github.filesAt('sync/workflows')[POLICY], ALIGNED.replace('mode: log', 'mode: block'));
+  assert.equal(github.filesAt('sync/workflows')[`${W}/codeql.yml`], 'on:  push\n');
+  assert.match(github.pulls[0].body, /Not updated: `codeql\.yml` differs from the source only in whitespace, which this repository's formatter sets\./);
+});
+
+test('an open pull request whose branch a formatter respaced is left alone', async (t) => {
+  const github = mockGithub({ files: { [POLICY]: FORMATTED, [`${W}/codeql.yml`]: 'v1\n' } });
+  const source = { [POLICY]: ALIGNED.replace('mode: log', 'mode: block'), [`${W}/codeql.yml`]: 'v1\n' };
+  assert.equal((await run(t, { github, source, SYNC_FILES: POLICY })).result, 'created');
+  // autofix.ci formats the pull request's branch.
+  github.push('sync/workflows', { [POLICY]: FORMATTED.replace('mode: log', 'mode: block') });
+  const before = github.calls.length;
+  const again = await run(t, { github, source, SYNC_FILES: POLICY });
+  assert.equal(again.result, 'unchanged');
+  assert.equal(github.calls.length, before);
+  assert.equal(github.filesAt('sync/workflows')[POLICY], FORMATTED.replace('mode: log', 'mode: block'));
+  // A change of more than whitespace on the branch is still overwritten.
+  github.push('sync/workflows', { [POLICY]: FORMATTED.replace('mode: log', 'mode: audit') });
+  const rebuilt = await run(t, { github, source, SYNC_FILES: POLICY });
+  assert.equal(rebuilt.result, 'updated');
+});
+
+test('the open pull request is closed once only whitespace and versions differ', async (t) => {
+  const github = mockGithub({ files: { [POLICY]: FORMATTED, [`${W}/zizmor.yml`]: caller('v1.2.0') } });
+  const source = { [POLICY]: ALIGNED.replace('mode: log', 'mode: block'), [`${W}/zizmor.yml`]: caller('v2.0.0') };
+  await run(t, { github, source, SYNC_FILES: POLICY, SYNC_IGNORE_VERSIONS: 'true' });
+  assert.equal(github.pulls[0].state, 'open');
+  // The pull request is merged after the formatter respaced it.
+  github.push('main', { [POLICY]: FORMATTED.replace('mode: log', 'mode: block') });
+  const { result } = await run(t, { github, source, SYNC_FILES: POLICY, SYNC_IGNORE_VERSIONS: 'true' });
+  assert.equal(result, 'closed');
+  assert.match(github.comments[0].body, /only in the versions they reference, which Renovate updates, and in whitespace, which the repository's formatter sets/);
+});
+
+test('a copy that differs in whitespace and versions is left with ignore-versions', async (t) => {
+  const github = mockGithub({ files: { [`${W}/zizmor.yml`]: `${caller('v1.2.0')}\n` } });
+  const { result } = await run(t, { github, source: { [`${W}/zizmor.yml`]: caller('v2.0.0').replace('uses:', 'uses:  ') }, SYNC_IGNORE_VERSIONS: 'true' });
+  assert.equal(result, 'up-to-date');
+});
+
 test('without add, a workflow or a file the repository lacks is not added', async (t) => {
   const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
   const { result } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v1\n', [`${W}/new.yml`]: 'new\n', [POLICY]: 'mode: log\n' }, SYNC_FILES: POLICY });
