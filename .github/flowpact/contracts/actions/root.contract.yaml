@@ -84,7 +84,7 @@ interface:
 consumers:
   - from: .github/workflows/_workflow-sync.yml
     job: workflows
-    step: '#4'
+    step: '#5'
     passes:
       - add
       - dry-run

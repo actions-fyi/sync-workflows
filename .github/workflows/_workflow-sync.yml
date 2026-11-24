@@ -29,6 +29,10 @@ name: Sync
 #   where it is missing. The synced workflows run under that policy, so a workflow that needs a
 #   new host and the policy that allows it arrive in the same pull request. The policy is
 #   replaced as a whole: a host only one repository needs belongs in the source's policy.
+# - Switches that policy from mode: log to mode: enforce where the repository's custom property
+#   firewall is true. The source logs; a repository opts in to blocking with the property, and
+#   out again by setting it back, both through the next sync's pull request, whose checks already
+#   run under the new mode. The property can't make a policy log that the source enforces.
 # - Skips the names and paths in the repository's WORKFLOW_SYNC_EXCLUDE variable, separated by
 #   commas or newlines. That is how a repository keeps a workflow out, or keeps its own policy.
 # - Leaves a copy that differs from the source only in the versions it references, such as the
@@ -125,6 +129,28 @@ jobs:
             .github/workflows
             workflow-templates
           persist-credentials: false
+      # Rewrites the checkout's policy before the action compares it, so a repository whose
+      # property is true gets, and keeps, the enforcing copy. The property is read through the API
+      # rather than github.event.repository, which a schedule event doesn't have.
+      - name: Apply Firewall Property
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          POLICY: source/.github/egress-firewall.yaml
+        run: |
+          firewall=$(gh api "repos/$REPOSITORY/properties/values" --jq '.[] | select(.property_name == "firewall") | .value')
+          if [ "$firewall" != "true" ]; then
+            echo "The custom property firewall is ${firewall:-not set}, so the policy keeps the source's mode."
+            exit 0
+          fi
+          # The action warns about a policy the source lacks.
+          [ -f "$POLICY" ] || exit 0
+          sed -E -i 's/^mode:([[:space:]]+)log([[:space:]]|$)/mode:\1enforce\2/' "$POLICY"
+          if ! grep -Eq '^mode:[[:space:]]+enforce([[:space:]]|$)' "$POLICY"; then
+            echo "::error::The custom property firewall is true, but the source's .github/egress-firewall.yaml has no top-level mode: log or mode: enforce line to set."
+            exit 1
+          fi
+          echo "::notice::The custom property firewall is true, so the policy is synced with mode: enforce."
       - name: Get Sync Token
         id: sts
         continue-on-error: true
