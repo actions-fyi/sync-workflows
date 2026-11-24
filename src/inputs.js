@@ -5,6 +5,9 @@
 // The file names of workflows: no directory, and .yml or .yaml. src/source.js reads the same ones.
 const WORKFLOW_FILE = /^[^/\\]+\.ya?ml$/;
 
+// The merge methods GitHub's auto-merge takes, as the auto-merge input spells them.
+const MERGE_METHODS = ['merge', 'squash', 'rebase'];
+
 class ConfigError extends Error {}
 
 function bool(env, key, fallback) {
@@ -49,6 +52,10 @@ function parseInputs(env) {
       throw new ConfigError(`files lists "${file}", but workflows and workflow templates are synced by file name, not as files.`);
     }
   }
+  const autoMerge = (env.SYNC_AUTO_MERGE ?? '').trim().toLowerCase();
+  if (autoMerge && !MERGE_METHODS.includes(autoMerge)) {
+    throw new ConfigError(`auto-merge must be empty or one of ${MERGE_METHODS.join(', ')}, not "${autoMerge}".`);
+  }
   return {
     sourceRepository,
     sourcePath: (env.SYNC_SOURCE_PATH ?? '').trim() || '.',
@@ -63,10 +70,11 @@ function parseInputs(env) {
     ignoreWhitespace: bool(env, 'SYNC_IGNORE_WHITESPACE', true),
     dryRun: bool(env, 'SYNC_DRY_RUN', false),
     force: bool(env, 'SYNC_FORCE', false),
+    autoMerge,
     workspace: env.GITHUB_WORKSPACE || process.cwd(),
     serverUrl: (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/, ''),
     runId: env.GITHUB_RUN_ID || '',
   };
 }
 
-module.exports = { ConfigError, WORKFLOW_FILE, parseInputs };
+module.exports = { ConfigError, MERGE_METHODS, WORKFLOW_FILE, parseInputs };

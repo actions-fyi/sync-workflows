@@ -61,6 +61,17 @@ function mockGithub({ files = {}, defaultBranch = 'main' } = {}) {
 
   const github = {
     mergeable: true,
+    // What enablePullRequestAutoMerge fails with, e.g. httpError(...), or null when it succeeds.
+    autoMergeError: null,
+    // Only enablePullRequestAutoMerge goes through GraphQL.
+    graphql: async (query, { pullRequestId, mergeMethod }) => {
+      record('enableAutoMerge', { pullRequestId, mergeMethod });
+      if (!/enablePullRequestAutoMerge/.test(query)) throw new Error(`Unexpected GraphQL query: ${query}`);
+      if (github.autoMergeError) throw github.autoMergeError;
+      const pull = pulls.find((candidate) => candidate.node_id === pullRequestId);
+      pull.auto_merge = { merge_method: mergeMethod.toLowerCase() };
+      return { enablePullRequestAutoMerge: { pullRequest: { number: pull.number } } };
+    },
     calls,
     refs,
     pulls,
@@ -144,7 +155,7 @@ function mockGithub({ files = {}, defaultBranch = 'main' } = {}) {
         create: async ({ title, body, head, base }) => {
           record('createPull', { title, head, base });
           const number = pulls.length + 1;
-          const pull = { number, title, body, state: 'open', head: { ref: head }, base: { ref: base }, html_url: `https://github.com/acme/app/pull/${number}` };
+          const pull = { number, node_id: `PR_${number}`, auto_merge: null, title, body, state: 'open', head: { ref: head }, base: { ref: base }, html_url: `https://github.com/acme/app/pull/${number}` };
           pulls.push(pull);
           return { data: pull };
         },

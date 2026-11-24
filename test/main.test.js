@@ -588,3 +588,60 @@ test('files only takes paths of files outside the workflow directories', async (
     assert.deepEqual(writes(github), []);
   }
 });
+
+test('with auto-merge, a new pull request gets auto-merge with that method', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  const { result, core } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_AUTO_MERGE: 'squash' });
+  assert.equal(result, 'created');
+  assert.deepEqual(core.failed, []);
+  assert.deepEqual(writes(github), ['createTree', 'createCommit', 'createRef', 'createPull', 'enableAutoMerge']);
+  assert.equal(github.calls.at(-1).pullRequestId, 'PR_1');
+  assert.equal(github.calls.at(-1).mergeMethod, 'SQUASH');
+  assert.equal(core.outputs['auto-merge'], 'enabled');
+});
+
+test('auto-merge is turned on once, and again on a pull request it was turned off on', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_AUTO_MERGE: 'squash' });
+  github.calls.length = 0;
+  const updated = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v3\n' }, SYNC_AUTO_MERGE: 'squash' });
+  assert.equal(updated.result, 'updated');
+  assert.deepEqual(writes(github), ['createTree', 'createCommit', 'updateRef', 'updatePull']);
+  assert.equal(updated.core.outputs['auto-merge'], 'enabled');
+
+  github.pulls[0].auto_merge = null;
+  github.calls.length = 0;
+  const unchanged = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v3\n' }, SYNC_AUTO_MERGE: 'squash' });
+  assert.equal(unchanged.result, 'unchanged');
+  assert.deepEqual(writes(github), ['enableAutoMerge']);
+});
+
+test('auto-merge GitHub refuses is a warning, and the pull request stays open', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  github.autoMergeError = new Error('Pull request Auto merge is not allowed for this repository.');
+  const { result, core } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_AUTO_MERGE: 'rebase' });
+  assert.equal(result, 'created');
+  assert.deepEqual(core.failed, []);
+  assert.equal(core.outputs['auto-merge'], 'unavailable');
+  assert.match(core.warnings.at(-1), /Couldn't turn on auto-merge for #1, so it stays open.*not allowed for this repository/);
+  assert.equal(github.pulls[0].state, 'open');
+});
+
+test('without auto-merge, or with nothing to sync, auto-merge is left alone', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  const off = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' } });
+  assert.equal(off.core.outputs['auto-merge'], '');
+  assert.ok(!writes(github).includes('enableAutoMerge'));
+  const current = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  const upToDate = await run(t, { github: current, source: { [`${W}/codeql.yml`]: 'v1\n' }, SYNC_AUTO_MERGE: 'squash' });
+  assert.equal(upToDate.result, 'up-to-date');
+  assert.deepEqual(writes(current), []);
+  const dry = await run(t, { github: mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } }), source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_AUTO_MERGE: 'squash', SYNC_DRY_RUN: 'true' });
+  assert.equal(dry.result, 'dry-run');
+  assert.equal(dry.core.outputs['auto-merge'], '');
+});
+
+test('auto-merge only takes a merge method', async (t) => {
+  const { core } = await run(t, { github: mockGithub(), source: { [`${W}/a.yml`]: 'a\n' }, SYNC_AUTO_MERGE: 'fast-forward' });
+  assert.match(core.failed[0], /auto-merge must be empty or one of merge, squash, rebase, not "fast-forward"/);
+});

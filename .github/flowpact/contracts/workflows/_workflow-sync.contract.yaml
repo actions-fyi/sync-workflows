@@ -26,6 +26,7 @@ uses:
     uses: .
     with:
       add: 'true'
+      auto-merge: squash
       dry-run: ${{ inputs.dry-run }}
       exclude: ${{ format('{0},{1}', vars.WORKFLOW_SYNC_EXCLUDE, github.repository == 'actions-fyi/sync-workflows' && 'workflow-sync.yml' || '') }}
       files: .github/egress-firewall.yaml

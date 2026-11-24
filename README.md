@@ -64,6 +64,12 @@ removals on top of the default branch and points its branch, `sync/workflows`, a
 - With `force`, the open pull request is rebuilt from the default branch in any case. That is how
   to recreate it by hand. Without differences there is nothing to rebuild, and `force` changes
   nothing.
+- With `auto-merge` set to `merge`, `squash` or `rebase`, the pull request that is left open,
+  created, updated or left alone, gets GitHub's auto-merge with that method, unless it has it
+  already. GitHub merges it once the default branch's required checks and reviews pass. The
+  repository must allow auto-merge in its settings. When GitHub refuses, as there, or because the
+  pull request is mergeable at once with nothing required to wait for, that is a warning, and the
+  pull request stays open for a person to merge.
 - Once the default branch matches the source, lacks nothing and has no retired workflow, the open pull request
   is closed and its branch deleted.
 
@@ -111,6 +117,7 @@ The token needs contents, pull requests and workflows write on the repository. T
 | `ignore-whitespace` | `true` | Leave copies that differ only in whitespace, not indentation. |
 | `dry-run` | `false` | Report the copies that differ, change nothing. |
 | `force` | `false` | Rebuild the open pull request from the default branch even when it already holds the changes. |
+| `auto-merge` | | `merge`, `squash` or `rebase`: turn on auto-merge for the pull request with that method. Empty leaves it off. |
 
 | Output | |
 | --- | --- |
@@ -119,6 +126,7 @@ The token needs contents, pull requests and workflows write on the repository. T
 | `added` | A JSON array of those in `changed` that the repository didn't have. |
 | `removed` | A JSON array of the retired file names the repository still has. |
 | `pull-request-number`, `pull-request-url` | The sync pull request, or empty. |
+| `auto-merge` | `enabled` when the pull request has auto-merge on, `unavailable` when GitHub refused, or empty. |
 
 The action is a composite action with one `actions/github-script` step and plain CommonJS modules
 in `src/`: no npm dependencies, no build, no `dist/`. Run the tests with `node --test test/*.test.js`.

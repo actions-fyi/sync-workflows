@@ -54,6 +54,15 @@
 // the background, so it may not know yet; then the pull request is left alone, and a later run
 // looks again.
 //
+// Auto-merge: with auto-merge set to a merge method, the sync pull request that is left open,
+// whether it was just created, updated or left alone, gets GitHub's auto-merge with that method,
+// unless it has it already. GitHub then merges it once the default branch's rules are met, its
+// required checks and reviews included, so a sync that passes them needs no one to merge it. A
+// pull request someone turned auto-merge off on gets it again from the next run that writes or
+// looks at it. When GitHub refuses, as in a repository that doesn't allow auto-merge, or for a pull
+// request that is mergeable right away because nothing is required of it, that is a warning and
+// the pull request stays open: merging it without waiting for anything is left to a person.
+//
 // Force: with force, the open pull request is rebuilt from the default branch even when it
 // already holds the changes, and its description is rewritten. That is the manual way to
 // recreate it. Without differences there is nothing to rebuild, and force changes nothing.
@@ -142,15 +151,37 @@ async function conflicts(github, repo, number, wait) {
   }
 }
 
+// Turns GitHub's auto-merge on for the pull request with the merge method, unless it is on. REST
+// has no endpoint for it, so it goes through GraphQL. Returns "enabled", or "unavailable" when
+// GitHub refused, which is a warning: the pull request is open, and a person can merge it.
+const ENABLE_AUTO_MERGE = `mutation($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
+  enablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId, mergeMethod: $mergeMethod }) {
+    pullRequest { number }
+  }
+}`;
+
+async function enableAutoMerge(github, core, pullRequest, method) {
+  if (pullRequest.auto_merge) return 'enabled';
+  try {
+    await github.graphql(ENABLE_AUTO_MERGE, { pullRequestId: pullRequest.node_id, mergeMethod: method.toUpperCase() });
+  } catch (error) {
+    core.warning(`Couldn't turn on auto-merge for #${pullRequest.number}, so it stays open for a person to merge: ${error.message} Auto-merge needs "Allow auto-merge" in the repository's settings, the ${method} merge method allowed, and something the default branch requires, such as a check, still to wait for.`);
+    return 'unavailable';
+  }
+  core.notice(`Turned on auto-merge (${method}) for #${pullRequest.number}.`);
+  return 'enabled';
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function setOutputs(core, { result, changed = [], added = [], removed = [], pullRequest = null }) {
+function setOutputs(core, { result, changed = [], added = [], removed = [], pullRequest = null, autoMerge = '' }) {
   core.setOutput('result', result);
   core.setOutput('changed', JSON.stringify(changed));
   core.setOutput('added', JSON.stringify(added));
   core.setOutput('removed', JSON.stringify(removed));
   core.setOutput('pull-request-number', pullRequest ? String(pullRequest.number) : '');
   core.setOutput('pull-request-url', pullRequest?.html_url ?? '');
+  core.setOutput('auto-merge', autoMerge);
   return result;
 }
 
@@ -318,7 +349,8 @@ async function sync({ github, context, core, inputs, wait }) {
       } else {
         if (conflicting === null) core.info(`GitHub hasn't worked out yet whether #${pullRequest.number} conflicts with ${defaultBranch}. A later run looks again.`);
         core.notice(`#${pullRequest.number} already holds these changes: ${pullRequest.html_url}`);
-        return setOutputs(core, { result: 'unchanged', changed, added, removed, pullRequest });
+        const autoMerge = inputs.autoMerge ? await enableAutoMerge(github, core, pullRequest, inputs.autoMerge) : '';
+        return setOutputs(core, { result: 'unchanged', changed, added, removed, pullRequest, autoMerge });
       }
     }
   }
@@ -346,7 +378,8 @@ async function sync({ github, context, core, inputs, wait }) {
     result = 'created';
   }
   core.notice(`Pull request #${pullRequest.number} ${result}: ${pullRequest.html_url}`);
-  return setOutputs(core, { result, changed, added, removed, pullRequest });
+  const autoMerge = inputs.autoMerge ? await enableAutoMerge(github, core, pullRequest, inputs.autoMerge) : '';
+  return setOutputs(core, { result, changed, added, removed, pullRequest, autoMerge });
 }
 
 module.exports = async function main({ github, context, core, env = process.env, wait = sleep }) {
