@@ -41,6 +41,11 @@ name: Sync
 # - When a copy differs, the action opens one pull request, or overwrites the branch of the one
 #   that is still open. Nothing is pushed to the default branch, so the repository's own checks
 #   run on the change, and its lockfile fix job updates actions.lock on the pull request.
+# - Leaves an open pull request that already holds the changes alone, so its checks don't restart
+#   and the lockfile fix stays, unless GitHub reports that it conflicts with the default branch,
+#   e.g. because actions.lock changed there too. Then it is rebuilt from the default branch, and
+#   the fix job runs again. With the force input, set from the caller's workflow_dispatch, it is
+#   rebuilt in any case.
 #
 # The action runs with `uses: $/`, which resolves to this repository at the commit this workflow
 # runs at, wherever it was called from. `./` would resolve to the caller's checkout instead.
@@ -65,6 +70,13 @@ on:
       dry-run:
         description: >-
           Report which copies differ without pushing a branch or opening a pull request.
+        type: boolean
+        required: false
+        default: false
+      force:
+        description: >-
+          Rebuild the open sync pull request from the default branch even when it already holds
+          the changes. The manual way to recreate it.
         type: boolean
         required: false
         default: false
@@ -140,3 +152,4 @@ jobs:
           add: true
           ignore-versions: true
           dry-run: ${{ inputs.dry-run }}
+          force: ${{ inputs.force }}

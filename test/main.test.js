@@ -6,12 +6,15 @@ const { SOURCE, SOURCE_SHA, httpError, mockCore, mockGithub, sourceCheckout, con
 const main = require('../src/main');
 
 const W = '.github/workflows';
-const writes = (github) => github.calls.map((call) => call.name);
+// The calls that change something; getPull only reads.
+const writes = (github) => github.calls.map((call) => call.name).filter((name) => name !== 'getPull');
 
 async function run(t, { source, github, ...overrides }) {
   const core = mockCore();
-  const result = await main({ github, context, core, env: env(sourceCheckout(t, source), overrides) });
-  return { result, core, github };
+  const waits = [];
+  const wait = async (ms) => { waits.push(ms); };
+  const result = await main({ github, context, core, env: env(sourceCheckout(t, source), overrides), wait });
+  return { result, core, github, waits };
 }
 
 test('a copy that differs is updated in one pull request, and nothing else is touched', async (t) => {
@@ -121,6 +124,89 @@ test('an open pull request that already holds the changes is left alone, with co
   assert.equal(github.refs.get('sync/workflows'), head);
 });
 
+test('an open pull request that holds the changes but conflicts is rebuilt from the default branch', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n', [`${W}/actions.lock`]: 'lock: 1\n' } });
+  await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' } });
+  // The fix job updates the lockfile on the pull request, and another pull request on main.
+  github.push('sync/workflows', { [`${W}/actions.lock`]: 'lock: sync\n' });
+  github.push('main', { [`${W}/actions.lock`]: 'lock: 2\n', 'README.md': 'hello\n' });
+  github.mergeable = false;
+  github.calls.length = 0;
+  const { result, core } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' } });
+  assert.equal(result, 'updated');
+  assert.deepEqual(core.failed, []);
+  assert.match(core.notices[0], /#1 already holds these changes, but conflicts with main\. Rebuilding it from main\./);
+  assert.deepEqual(writes(github), ['createTree', 'createCommit', 'updateRef', 'updatePull']);
+  assert.deepEqual(github.commit(github.refs.get('sync/workflows')).parents, [github.refs.get('main')]);
+  assert.deepEqual(github.filesAt('sync/workflows'), {
+    [`${W}/codeql.yml`]: 'v2\n',
+    [`${W}/actions.lock`]: 'lock: 2\n',
+    'README.md': 'hello\n',
+  });
+  assert.equal(github.pulls.length, 1);
+});
+
+test('mergeability GitHub has not worked out yet is asked again, and then left to a later run', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' } });
+  const head = github.refs.get('sync/workflows');
+  github.mergeable = null;
+  github.calls.length = 0;
+  const { result, core, waits } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' } });
+  assert.equal(result, 'unchanged');
+  assert.equal(github.calls.filter((call) => call.name === 'getPull').length, 4);
+  assert.deepEqual(waits, [3000, 3000, 3000]);
+  assert.deepEqual(writes(github), []);
+  assert.equal(github.refs.get('sync/workflows'), head);
+  assert.ok(core.logs.some((line) => /hasn't worked out yet whether #1 conflicts with main/.test(line)));
+
+  // Once GitHub knows, a conflict is found on the next request.
+  const answers = [null, false];
+  github.mergeable = () => answers.shift();
+  github.calls.length = 0;
+  const next = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' } });
+  assert.equal(next.result, 'updated');
+  assert.deepEqual(next.waits, [3000]);
+});
+
+test('a mergeable pull request is asked about once and left alone', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' } });
+  github.calls.length = 0;
+  const { result, waits } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' } });
+  assert.equal(result, 'unchanged');
+  assert.deepEqual(github.calls.map((call) => call.name), ['getPull']);
+  assert.deepEqual(waits, []);
+});
+
+test('with force, an open pull request that holds the changes is rebuilt anyway', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' } });
+  github.push('sync/workflows', { [`${W}/actions.lock`]: 'fixed\n' });
+  github.push('main', { 'README.md': 'hello\n' });
+  github.calls.length = 0;
+  const { result, core } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_FORCE: 'true' });
+  assert.equal(result, 'updated');
+  assert.match(core.notices[0], /Rebuilding #1 from main, because force is set\./);
+  // Mergeability isn't asked for: the pull request is rebuilt whatever it is.
+  assert.deepEqual(github.calls.map((call) => call.name), ['createTree', 'createCommit', 'updateRef', 'updatePull']);
+  assert.deepEqual(github.commit(github.refs.get('sync/workflows')).parents, [github.refs.get('main')]);
+  assert.deepEqual(github.filesAt('sync/workflows'), { [`${W}/codeql.yml`]: 'v2\n', 'README.md': 'hello\n' });
+});
+
+test('force changes nothing without differences, and a dry run with force writes nothing', async (t) => {
+  const current = mockGithub({ files: { [`${W}/codeql.yml`]: 'v2\n' } });
+  assert.equal((await run(t, { github: current, source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_FORCE: 'true' })).result, 'up-to-date');
+  assert.deepEqual(writes(current), []);
+
+  const open = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  await run(t, { github: open, source: { [`${W}/codeql.yml`]: 'v2\n' } });
+  open.calls.length = 0;
+  const { result } = await run(t, { github: open, source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_FORCE: 'true', SYNC_DRY_RUN: 'true' });
+  assert.equal(result, 'dry-run');
+  assert.deepEqual(open.calls, []);
+});
+
 test('a branch left behind by a closed pull request is overwritten for a new one', async (t) => {
   const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
   await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' } });
@@ -177,6 +263,8 @@ test('a bad input or an empty source checkout fails the step', async (t) => {
   const github = mockGithub();
   const bad = await run(t, { github, source: { [`${W}/a.yml`]: 'a\n' }, SYNC_BRANCH: 'sync/.hidden' });
   assert.match(bad.core.failed[0], /not a valid branch name/);
+  const force = await run(t, { github, source: { [`${W}/a.yml`]: 'a\n' }, SYNC_FORCE: 'yes' });
+  assert.match(force.core.failed[0], /SYNC_FORCE must be true or false, not "yes"/);
   const empty = await run(t, { github, source: { 'README.md': 'x\n' } });
   assert.match(empty.core.failed[0], /No workflow was found/);
   assert.equal(empty.result, 'error');
@@ -219,10 +307,10 @@ test('a retired workflow alone opens a pull request, and the next run leaves it 
   assert.equal(first.core.outputs.removed, '["retired.yml"]');
   assert.doesNotMatch(github.pulls[0].body, /\| Workflow \| Source \| Lines \|/);
   assert.match(github.pulls[0].body, /^Removes 1 workflow that/);
-  const before = github.calls.length;
+  const before = writes(github).length;
   const second = await run(t, { github, source, SYNC_REMOVE: 'retired.yml' });
   assert.equal(second.result, 'unchanged');
-  assert.equal(github.calls.length, before);
+  assert.equal(writes(github).length, before);
 });
 
 test('a name the source still has, or an excluded one, is never removed', async (t) => {
@@ -298,10 +386,10 @@ test('a copy that differs in more than versions is replaced, versions included; 
   });
   assert.match(github.pulls[0].body, /Not updated: `codeql\.yml` differs from the source only in the versions it references, which Renovate updates\./);
   // The next run leaves the pull request alone, although codeql.yml still differs.
-  const before = github.calls.length;
+  const before = writes(github).length;
   const again = await run(t, { github, source, SYNC_IGNORE_VERSIONS: 'true' });
   assert.equal(again.result, 'unchanged');
-  assert.equal(github.calls.length, before);
+  assert.equal(writes(github).length, before);
 });
 
 test('the open pull request is closed once only versions differ', async (t) => {
@@ -366,10 +454,10 @@ test('an open pull request whose branch a formatter respaced is left alone', asy
   assert.equal((await run(t, { github, source, SYNC_FILES: POLICY })).result, 'created');
   // autofix.ci formats the pull request's branch.
   github.push('sync/workflows', { [POLICY]: FORMATTED.replace('mode: log', 'mode: block') });
-  const before = github.calls.length;
+  const before = writes(github).length;
   const again = await run(t, { github, source, SYNC_FILES: POLICY });
   assert.equal(again.result, 'unchanged');
-  assert.equal(github.calls.length, before);
+  assert.equal(writes(github).length, before);
   assert.equal(github.filesAt('sync/workflows')[POLICY], FORMATTED.replace('mode: log', 'mode: block'));
   // A change of more than whitespace on the branch is still overwritten.
   github.push('sync/workflows', { [POLICY]: FORMATTED.replace('mode: log', 'mode: audit') });

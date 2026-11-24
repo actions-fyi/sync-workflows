@@ -13,7 +13,8 @@
 //   closed      the same, so the open sync pull request was closed
 //   created     a pull request was opened
 //   updated     the branch of the open pull request was rebuilt and its description rewritten
-//   unchanged   the open pull request already holds exactly these changes
+//   unchanged   the open pull request already holds exactly these changes, and doesn't conflict
+//               with the default branch
 //   dry-run     copies differ or a retired workflow is left, and dry-run kept this from writing
 //               anything
 //
@@ -43,6 +44,19 @@
 // target that still has it loses it in the same pull request. A name the source still has isn't
 // retired, so it is kept with a warning, whichever of the two is changed first. An excluded name
 // is never touched.
+//
+// Conflicts: an open pull request that already holds the changes is left alone, so its checks
+// don't restart and a commit a fix job added, such as the lockfile's, stays. But that commit can
+// come to conflict with the default branch, when actions.lock changes there too, and nothing the
+// sync compares would ever change, so the pull request would stay unmergeable. So it is left
+// alone only while GitHub doesn't report a conflict: one that conflicts is rebuilt from the
+// default branch, and the fix job runs again on the new commit. GitHub works mergeability out in
+// the background, so it may not know yet; then the pull request is left alone, and a later run
+// looks again.
+//
+// Force: with force, the open pull request is rebuilt from the default branch even when it
+// already holds the changes, and its description is rewritten. That is the manual way to
+// recreate it. Without differences there is nothing to rebuild, and force changes nothing.
 
 const path = require('node:path');
 const { ConfigError, parseInputs } = require('./inputs');
@@ -112,6 +126,24 @@ async function setBranch(github, repo, branch, sha, exists) {
   await github.rest.git.updateRef({ ...repo, ref: `heads/${branch}`, sha, force: true });
 }
 
+// Whether GitHub reports the pull request as conflicting with its base: true, false, or null when
+// it hasn't worked that out yet. A request for the pull request starts the work, so it is asked
+// again a few times, a few seconds apart.
+const MERGEABLE_ATTEMPTS = 4;
+const MERGEABLE_INTERVAL_MS = 3000;
+
+async function conflicts(github, repo, number, wait) {
+  for (let attempt = 1; ; attempt++) {
+    const { data } = await github.rest.pulls.get({ ...repo, pull_number: number });
+    if (data.mergeable === false) return true;
+    if (data.mergeable === true) return false;
+    if (attempt === MERGEABLE_ATTEMPTS) return null;
+    await wait(MERGEABLE_INTERVAL_MS);
+  }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function setOutputs(core, { result, changed = [], added = [], removed = [], pullRequest = null }) {
   core.setOutput('result', result);
   core.setOutput('changed', JSON.stringify(changed));
@@ -122,7 +154,7 @@ function setOutputs(core, { result, changed = [], added = [], removed = [], pull
   return result;
 }
 
-async function sync({ github, context, core, inputs }) {
+async function sync({ github, context, core, inputs, wait }) {
   const repo = context.repo;
   inputs.repository = `${repo.owner}/${repo.repo}`;
   const { sourceRepository, branch, title, dryRun } = inputs;
@@ -258,8 +290,11 @@ async function sync({ github, context, core, inputs }) {
   // job added to it. A copy that isn't updated should be on the branch as it is on the default
   // branch. A file from `files` isn't in the workflow listing, so it is looked up by its path.
   // Unless ignore-whitespace is false, a copy a formatter respaced on the branch is as it should be.
+  // It is rebuilt all the same when it conflicts with the default branch, or with force.
   const branchSha = await getBranch(github, repo, branch);
-  if (pullRequest && branchSha) {
+  if (pullRequest && branchSha && inputs.force) {
+    core.notice(`Rebuilding #${pullRequest.number} from ${defaultBranch}, because force is set.`);
+  } else if (pullRequest && branchSha) {
     const onBranch = await listWorkflows(github, repo, branchSha);
     for (const copy of copies) {
       if (copy.origin === 'file') onBranch.set(copy.path, await fileSha(github, repo, copy.path, branchSha));
@@ -277,8 +312,14 @@ async function sync({ github, context, core, inputs }) {
     let holdsAll = removals.every((removal) => !onBranch.has(removal.name));
     for (const copy of copies) holdsAll &&= await holds(copy);
     if (holdsAll) {
-      core.notice(`#${pullRequest.number} already holds these changes: ${pullRequest.html_url}`);
-      return setOutputs(core, { result: 'unchanged', changed, added, removed, pullRequest });
+      const conflicting = await conflicts(github, repo, pullRequest.number, wait);
+      if (conflicting) {
+        core.notice(`#${pullRequest.number} already holds these changes, but conflicts with ${defaultBranch}. Rebuilding it from ${defaultBranch}.`);
+      } else {
+        if (conflicting === null) core.info(`GitHub hasn't worked out yet whether #${pullRequest.number} conflicts with ${defaultBranch}. A later run looks again.`);
+        core.notice(`#${pullRequest.number} already holds these changes: ${pullRequest.html_url}`);
+        return setOutputs(core, { result: 'unchanged', changed, added, removed, pullRequest });
+      }
     }
   }
 
@@ -308,9 +349,9 @@ async function sync({ github, context, core, inputs }) {
   return setOutputs(core, { result, changed, added, removed, pullRequest });
 }
 
-module.exports = async function main({ github, context, core, env = process.env }) {
+module.exports = async function main({ github, context, core, env = process.env, wait = sleep }) {
   try {
-    return await sync({ github, context, core, inputs: parseInputs(env) });
+    return await sync({ github, context, core, inputs: parseInputs(env), wait });
   } catch (error) {
     const hint = isStatus(error, 403, 404) ? ' The token needs contents, pull requests and workflows write on this repository.' : '';
     core.setFailed(`${error.message}${error instanceof ConfigError ? '' : hint}`);

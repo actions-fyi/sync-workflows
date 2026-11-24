@@ -100,6 +100,12 @@ inputs:
     description: Report which copies differ, but make no changes on GitHub.
     required: false
     default: "false"
+  force:
+    description: >-
+      Rebuild the open pull request from the default branch even when it already holds the
+      changes, dropping commits added to its branch. Without differences, it changes nothing.
+    required: false
+    default: "false"
 outputs:
   result:
     description: >-
@@ -143,6 +149,7 @@ runs:
         SYNC_IGNORE_VERSIONS: ${{ inputs.ignore-versions }}
         SYNC_IGNORE_WHITESPACE: ${{ inputs.ignore-whitespace }}
         SYNC_DRY_RUN: ${{ inputs.dry-run }}
+        SYNC_FORCE: ${{ inputs.force }}
       with:
         github-token: ${{ inputs.github-token }}
         script: return await require(process.env.ACTION_PATH + '/src/main.js')({ github, context, core })

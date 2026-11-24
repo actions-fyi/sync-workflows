@@ -60,6 +60,7 @@ function mockGithub({ files = {}, defaultBranch = 'main' } = {}) {
   const record = (name, args) => calls.push({ name, ...args });
 
   const github = {
+    mergeable: true,
     calls,
     refs,
     pulls,
@@ -129,6 +130,14 @@ function mockGithub({ files = {}, defaultBranch = 'main' } = {}) {
         },
       },
       pulls: {
+        // github.mergeable is what GitHub reports: true, false or null while it works it out. A
+        // function is called once per request, so a test can make it change between them.
+        get: async ({ pull_number }) => {
+          record('getPull', { number: pull_number });
+          const pull = pulls.find((candidate) => candidate.number === pull_number);
+          const mergeable = typeof github.mergeable === 'function' ? github.mergeable() : github.mergeable;
+          return { data: { ...pull, mergeable } };
+        },
         list: async ({ head, base, state }) => ({
           data: pulls.filter((pull) => pull.state === state && pull.base.ref === base && `acme:${pull.head.ref}` === head),
         }),
