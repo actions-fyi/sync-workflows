@@ -22,6 +22,9 @@ branding:
 # no longer has it: that is how a workflow the source retired leaves the repositories that still
 # have a copy.
 #
+# With auto-merge, the sync pull request also gets GitHub's auto-merge, so it merges itself once
+# the default branch's required checks and reviews pass.
+#
 # Every input reaches the script through the step's env, never by interpolation into the script.
 #
 # Permissions github-token needs on the repository (none of them for a dry run, which only reads):
@@ -106,6 +109,13 @@ inputs:
       changes, dropping commits added to its branch. Without differences, it changes nothing.
     required: false
     default: "false"
+  auto-merge:
+    description: >-
+      A merge method, merge, squash or rebase, to turn on GitHub's auto-merge with for the sync pull
+      request, so it is merged once the default branch's rules are met. Empty leaves it off. The
+      repository must allow auto-merge; when GitHub refuses, that is a warning.
+    required: false
+    default: ""
 outputs:
   result:
     description: >-
@@ -129,6 +139,11 @@ outputs:
   pull-request-url:
     description: The URL of the sync pull request, or empty when there is none.
     value: ${{ steps.sync.outputs.pull-request-url }}
+  auto-merge:
+    description: >-
+      enabled when the sync pull request has auto-merge on, unavailable when GitHub refused to turn
+      it on, or empty without auto-merge or a pull request.
+    value: ${{ steps.sync.outputs.auto-merge }}
 runs:
   using: composite
   steps:
@@ -150,6 +165,7 @@ runs:
         SYNC_IGNORE_WHITESPACE: ${{ inputs.ignore-whitespace }}
         SYNC_DRY_RUN: ${{ inputs.dry-run }}
         SYNC_FORCE: ${{ inputs.force }}
+        SYNC_AUTO_MERGE: ${{ inputs.auto-merge }}
       with:
         github-token: ${{ inputs.github-token }}
         script: return await require(process.env.ACTION_PATH + '/src/main.js')({ github, context, core })

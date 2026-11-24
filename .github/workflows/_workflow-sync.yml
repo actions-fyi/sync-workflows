@@ -46,6 +46,12 @@ name: Sync
 #   e.g. because actions.lock changed there too. Then it is rebuilt from the default branch, and
 #   the fix job runs again. With the force input, set from the caller's workflow_dispatch, it is
 #   rebuilt in any case.
+# - Turns on auto-merge, squash, for the sync pull request, so it merges itself once the checks
+#   and reviews the repository's rulesets require pass, and a sync needs no one to merge it. The
+#   org's squash merges use the pull request's title, the Conventional Commits one the action
+#   sets. A repository that doesn't allow auto-merge, or requires nothing to wait for, gets a
+#   warning instead, and its pull request is merged by hand as before. The token's pull requests
+#   and contents write is what turning auto-merge on takes.
 #
 # The action runs with `uses: $/`, which resolves to this repository at the commit this workflow
 # runs at, wherever it was called from. `./` would resolve to the caller's checkout instead.
@@ -153,3 +159,4 @@ jobs:
           ignore-versions: true
           dry-run: ${{ inputs.dry-run }}
           force: ${{ inputs.force }}
+          auto-merge: squash
