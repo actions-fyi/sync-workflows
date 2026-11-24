@@ -18,6 +18,10 @@ on:
         description: Report which copies differ without opening a pull request.
         type: boolean
         default: false
+      force:
+        description: Recreate the open sync pull request from main, even when it holds the changes.
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -31,3 +35,4 @@ jobs:
     uses: $/.github/workflows/_workflow-sync.yml
     with:
       dry-run: ${{ inputs.dry-run || false }} # Empty on schedule and repository_dispatch
+      force: ${{ inputs.force || false }} # Empty on schedule and repository_dispatch

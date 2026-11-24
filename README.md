@@ -55,6 +55,15 @@ removals on top of the default branch and points its branch, `sync/workflows`, a
 - If the open pull request's branch already has every copy as it should be and no retired
   workflow, nothing is written, so its checks don't restart and commits added to it, such as a
   lockfile fix, stay.
+- An open pull request that holds the changes but that GitHub reports as conflicting with the
+  default branch, as when a lockfile fix on it and a change on the default branch both touch
+  `actions.lock`, is rebuilt from the default branch all the same. That drops the commits added
+  to it, and the repository's fix job runs again on the new commit. GitHub works mergeability out in the
+  background; when it hasn't yet after a few seconds, the pull request is left alone, and a later
+  run looks again.
+- With `force`, the open pull request is rebuilt from the default branch in any case. That is how
+  to recreate it by hand. Without differences there is nothing to rebuild, and `force` changes
+  nothing.
 - Once the default branch matches the source, lacks nothing and has no retired workflow, the open pull request
   is closed and its branch deleted.
 
@@ -101,6 +110,7 @@ The token needs contents, pull requests and workflows write on the repository. T
 | `ignore-versions` | `false` | Leave copies that differ only in the versions they reference. |
 | `ignore-whitespace` | `true` | Leave copies that differ only in whitespace, not indentation. |
 | `dry-run` | `false` | Report the copies that differ, change nothing. |
+| `force` | `false` | Rebuild the open pull request from the default branch even when it already holds the changes. |
 
 | Output | |
 | --- | --- |
@@ -133,6 +143,9 @@ on:
       dry-run:
         type: boolean
         default: false
+      force:
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -151,6 +164,7 @@ jobs:
     uses: actions-fyi/sync-workflows/.github/workflows/_workflow-sync.yml@v1.0.0
     with:
       dry-run: ${{ inputs.dry-run || false }}
+      force: ${{ inputs.force || false }}
   dispatch:
     if: github.event_name == 'push' && github.repository == 'actions-fyi/.github'
     permissions:
@@ -159,7 +173,8 @@ jobs:
 ```
 
 **`_workflow-sync.yml`** runs the sync in the calling repository, on the schedule, on demand and on the
-`workflow-sync` event. It skips itself in the source. Beyond updating the copies a repository has,
+`workflow-sync` event. Run on demand with `force`, it recreates the repository's open sync pull
+request from its default branch. It skips itself in the source. Beyond updating the copies a repository has,
 it:
 
 - adds the workflows of the source's `.github/workflows` that the repository doesn't have yet;

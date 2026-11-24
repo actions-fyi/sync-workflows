@@ -27,6 +27,10 @@ interface:
       required: false
       default: ''
       description: Paths of other files of the source to sync to the same path, separated by newlines or commas, e.g. .github/egress-firewall.yaml. Each is copied as it is and compared as a whole.
+    force:
+      required: false
+      default: 'false'
+      description: Rebuild the open pull request from the default branch even when it already holds the changes, dropping commits added to its branch. Without differences, it changes nothing.
     github-token:
       required: false
       default: ${{ github.token }}
@@ -86,6 +90,7 @@ consumers:
       - dry-run
       - exclude
       - files
+      - force
       - github-token
       - ignore-versions
       - remove

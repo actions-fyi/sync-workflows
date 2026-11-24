@@ -14,6 +14,11 @@ interface:
       required: false
       default: false
       description: Report which copies differ without pushing a branch or opening a pull request.
+    force:
+      type: boolean
+      required: false
+      default: false
+      description: Rebuild the open sync pull request from the default branch even when it already holds the changes. The manual way to recreate it.
   outputs: {}
 uses:
   - job: workflows
@@ -24,6 +29,7 @@ uses:
       dry-run: ${{ inputs.dry-run }}
       exclude: ${{ format('{0},{1}', vars.WORKFLOW_SYNC_EXCLUDE, github.repository == 'actions-fyi/sync-workflows' && 'workflow-sync.yml' || '') }}
       files: .github/egress-firewall.yaml
+      force: ${{ inputs.force }}
       github-token: ${{ steps.sts.outputs.token }}
       ignore-versions: 'true'
       remove: ${{ env.RETIRED }}
@@ -35,4 +41,5 @@ consumers:
     job: workflows
     passes:
       - dry-run
+      - force
     reads: []
