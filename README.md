@@ -187,7 +187,8 @@ it:
 
 - adds the workflows of the source's `.github/workflows` that the repository doesn't have yet;
 - syncs `.github/egress-firewall.yaml`, the egress firewall's policy that the workflows run
-  under, and adds it where it is missing;
+  under, and adds it where it is missing. Where the repository's custom property `firewall` is
+  `true`, its copy has `mode: enforce` instead of the source's `mode: log`;
 - removes the workflows the source has retired, which its `RETIRED` list names.
 
 A repository keeps a workflow out, or keeps its own policy, by naming it in its

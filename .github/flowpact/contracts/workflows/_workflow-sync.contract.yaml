@@ -22,7 +22,7 @@ interface:
   outputs: {}
 uses:
   - job: workflows
-    step: '#4'
+    step: '#5'
     uses: .
     with:
       add: 'true'
