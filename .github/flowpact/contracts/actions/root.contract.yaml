@@ -11,6 +11,10 @@ interface:
       required: false
       default: 'false'
       description: "Also add what the repository lacks: every workflow in the source's .github/workflows, and every path in files. A workflow template is never added."
+    auto-merge:
+      required: false
+      default: ''
+      description: A merge method, merge, squash or rebase, to turn on GitHub's auto-merge with for the sync pull request, so it is merged once the default branch's rules are met. Empty leaves it off. The repository must allow auto-merge; when GitHub refuses, that is a warning.
     branch:
       required: false
       default: sync/workflows
@@ -66,6 +70,9 @@ interface:
     added:
       description: A JSON array of those in changed that the repository didn't have.
       value: ${{ steps.sync.outputs.added }}
+    auto-merge:
+      description: enabled when the sync pull request has auto-merge on, unavailable when GitHub refused to turn it on, or empty without auto-merge or a pull request.
+      value: ${{ steps.sync.outputs.auto-merge }}
     changed:
       description: A JSON array of the workflow file names, and the paths from files, that differ from the source or are added.
       value: ${{ steps.sync.outputs.changed }}
@@ -87,6 +94,7 @@ consumers:
     step: '#4'
     passes:
       - add
+      - auto-merge
       - dry-run
       - exclude
       - files
