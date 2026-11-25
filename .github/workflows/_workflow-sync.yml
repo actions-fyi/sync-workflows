@@ -35,10 +35,11 @@ name: Sync
 #   run under the new mode. The property can't make a policy log that the source enforces.
 # - Skips the names and paths in the repository's WORKFLOW_SYNC_EXCLUDE variable, separated by
 #   commas or newlines. That is how a repository keeps a workflow out, or keeps its own policy.
-# - Leaves a copy that differs from the source only in the versions it references, such as the
-#   tag of a shared workflow it calls. Renovate updates those in every repository from the same
-#   releases, so syncing them would open a second pull request for the same change. A copy that
-#   differs in anything else is replaced by the source's, versions included.
+# - Opens no pull request for differences only in the versions the copies reference, such as the
+#   tag of a shared workflow they call, and closes the open one. Renovate updates those in every
+#   repository from the same releases, so syncing them alone would open a second pull request for
+#   the same change. A pull request due for anything else brings every copy up to the source,
+#   versions included.
 # - Removes the workflows the source has retired, which RETIRED below lists, from a repository
 #   that still has one, in the same pull request. Without that, a copy of a withdrawn workflow
 #   would stay, and keep running, forever: nothing else ever deletes it.

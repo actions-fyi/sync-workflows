@@ -31,7 +31,7 @@ function count(diff) {
   return diff ? `+${diff.added} −${diff.removed}` : 'too large to compare';
 }
 
-function pullRequestBody(inputs, { defaultBranch, changes, removals = [], versionOnly = [], whitespaceOnly = [], collisions }) {
+function pullRequestBody(inputs, { defaultBranch, changes, removals = [], whitespaceOnly = [], collisions }) {
   const { sourceRepository, sourceSha, serverUrl, runId } = inputs;
   const sourceUrl = `${serverUrl}/${sourceRepository}`;
   const ref = sourceSha || 'HEAD';
@@ -85,10 +85,6 @@ function pullRequestBody(inputs, { defaultBranch, changes, removals = [], versio
     scope.push(`Also synced, as ${inputs.files.size === 1 ? 'it is' : 'they are'} in the source: ${names}.`);
   }
   out.push('', scope.join(' '));
-  if (versionOnly.length) {
-    const names = versionOnly.map((name) => `\`${name}\``).join(', ');
-    out.push('', `Not updated: ${names} ${versionOnly.length === 1 ? 'differs' : 'differ'} from the source only in the versions ${versionOnly.length === 1 ? 'it references' : 'they reference'}, which Renovate updates.`);
-  }
   if (whitespaceOnly.length) {
     const names = whitespaceOnly.map((name) => `\`${name}\``).join(', ');
     out.push('', `Not updated: ${names} ${whitespaceOnly.length === 1 ? 'differs' : 'differ'} from the source only in whitespace, which this repository's formatter sets.`);

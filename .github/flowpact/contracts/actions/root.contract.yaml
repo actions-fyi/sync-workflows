@@ -42,7 +42,7 @@ interface:
     ignore-versions:
       required: false
       default: 'false'
-      description: Leave a copy that differs from the source only in the versions it references, e.g. the ref of a `uses:`, as it is. For repositories where Renovate updates those versions.
+      description: Open no pull request for differences only in the versions the copies reference, e.g. the ref of a `uses:`, and close the open one. A pull request due for other changes brings those versions too. For repositories where Renovate updates them.
     ignore-whitespace:
       required: false
       default: 'true'

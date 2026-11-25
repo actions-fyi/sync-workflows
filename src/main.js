@@ -18,11 +18,12 @@
 //   dry-run     copies differ or a retired workflow is left, and dry-run kept this from writing
 //               anything
 //
-// Versions: with ignore-versions, a copy that differs from the source only in the versions it
-// references is left as it is. Renovate updates those in every repository from the same releases
-// the source follows, so a sync of nothing else would only duplicate its pull request. Such a
-// copy counts as matching: it opens no pull request, and it doesn't keep one open. A copy that
-// differs in anything else is replaced by the source's, versions included.
+// Versions: with ignore-versions, differences only in the versions the copies reference open no
+// pull request. Renovate updates those in every repository from the same releases the source
+// follows, so a sync of nothing else would only duplicate its pull request: when nothing else
+// differs and no retired workflow is left, the run opens nothing and closes the open pull request.
+// When anything else differs, the pull request brings every copy up to the source, the copies
+// that differ only in versions included.
 //
 // Whitespace: unless ignore-whitespace is false, a copy that differs from the source only in
 // whitespace, but not in indentation, is left as it is too. A repository that runs a formatter
@@ -251,13 +252,8 @@ async function sync({ github, context, core, inputs, wait }) {
     }
     copy.before = await readBlob(github, repo, copy.currentSha);
     if (inputs.ignoreWhitespace && differOnlyInWhitespace(copy.before, copy.content)) whitespaceOnly.push(copy.name);
-    else if (inputs.ignoreVersions && copy.origin !== 'file' && differOnlyInVersions(normalize(copy.before), normalize(copy.content))) versionOnly.push(copy.name);
+    else if (inputs.ignoreVersions && copy.origin !== 'file' && differOnlyInVersions(normalize(copy.before), normalize(copy.content))) versionOnly.push(copy);
     else changes.push(copy);
-  }
-  const changed = changes.map((change) => change.name);
-  const added = changes.filter((change) => change.added).map((change) => change.name);
-  if (versionOnly.length) {
-    core.info(`${versionOnly.join(', ')} differ from the source only in the versions they reference, and are left to Renovate.`);
   }
   if (whitespaceOnly.length) {
     core.info(`${whitespaceOnly.join(', ')} differ from the source only in whitespace, and are left to the repository's formatter.`);
@@ -271,6 +267,15 @@ async function sync({ github, context, core, inputs, wait }) {
     }
     removals.push({ name, currentSha: existing.get(name) });
   }
+  // Versions only hold a pull request back: once one is due, it brings them too.
+  if (versionOnly.length && (changes.length || removals.length)) {
+    core.info(`${versionOnly.map((copy) => copy.name).join(', ')} differ from the source only in the versions they reference, and are updated with the other changes.`);
+    changes.push(...versionOnly.splice(0));
+  } else if (versionOnly.length) {
+    core.info(`${versionOnly.map((copy) => copy.name).join(', ')} differ from the source only in the versions they reference, and are left to Renovate.`);
+  }
+  const changed = changes.map((change) => change.name);
+  const added = changes.filter((change) => change.added).map((change) => change.name);
   const removed = removals.map((removal) => removal.name);
   core.info(`${copies.length} files of ${sourceRepository} are synced to ${inputs.repository}; ${changes.length - added.length} differ and ${added.length} are missing. ${removals.length} retired workflows are left.`);
 
@@ -368,7 +373,7 @@ async function sync({ github, context, core, inputs, wait }) {
   const { data: commit } = await github.rest.git.createCommit({ ...repo, message: commitMessage(inputs, changes, removals), tree: tree.sha, parents: [baseSha] });
   await setBranch(github, repo, branch, commit.sha, branchSha !== null);
 
-  const body = pullRequestBody(inputs, { defaultBranch, changes, removals, versionOnly, whitespaceOnly, collisions: used });
+  const body = pullRequestBody(inputs, { defaultBranch, changes, removals, whitespaceOnly, collisions: used });
   let result;
   if (pullRequest) {
     ({ data: pullRequest } = await github.rest.pulls.update({ ...repo, pull_number: pullRequest.number, title, body }));

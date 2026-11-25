@@ -32,11 +32,13 @@ The rules:
   warning: those have no single right value to compare a copy with.
 - A copy is compared as a whole, so a local edit to it is reverted by the next sync, unless it
   only changes whitespace or, with `ignore-versions`, versions; see below.
-- With `ignore-versions`, a copy that differs only in the versions it references is left as it
-  is: the ref of a `uses:`, with a version comment after it, and the value on the line after a
-  `# renovate:` annotation. Renovate updates those, so a sync of nothing else would duplicate its
-  pull request. Such a copy counts as matching. A copy that differs in anything else is replaced
-  by the source's, versions included. Versions in a file from `files` are never ignored.
+- With `ignore-versions`, differences only in the versions the copies reference open no pull
+  request: the ref of a `uses:`, with a version comment after it, and the value on the line after
+  a `# renovate:` annotation. Renovate updates those, so a sync of nothing else would duplicate its
+  pull request. When nothing else differs and no retired workflow is left, the sync opens nothing,
+  and closes the sync pull request that is open. When anything else differs, the pull request
+  brings every copy up to the source, the copies that differ only in versions included. Versions
+  in a file from `files` are never ignored.
 - Unless `ignore-whitespace` is `false`, a copy that differs only in whitespace is left as it is:
   the length of a run of spaces inside a line, such as the spaces that align comments, trailing
   whitespace and blank lines. Indentation counts, since it is YAML's structure. A repository that
@@ -113,7 +115,7 @@ The token needs contents, pull requests and workflows write on the repository. T
 | `files` | | Paths of other files of the source to sync to the same path. |
 | `add` | `false` | Also add the workflows of the source's `.github/workflows`, and the `files`, the repository lacks. |
 | `remove` | | File names the source retired, removed where a copy is left. |
-| `ignore-versions` | `false` | Leave copies that differ only in the versions they reference. |
+| `ignore-versions` | `false` | Open no pull request for differences only in the versions the copies reference. |
 | `ignore-whitespace` | `true` | Leave copies that differ only in whitespace, not indentation. |
 | `dry-run` | `false` | Report the copies that differ, change nothing. |
 | `force` | `false` | Rebuild the open pull request from the default branch even when it already holds the changes. |
