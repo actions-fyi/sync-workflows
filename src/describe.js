@@ -49,6 +49,10 @@ function pullRequestBody(inputs, { defaultBranch, changes, removals = [], whites
   }
   if (additions.length) {
     paragraph(`Adds ${additions.length} ${noun(additions)} of ${source} that this repository doesn't have yet.`);
+    // The same rule as in src/main.js, which turns auto-merge on.
+    if (inputs.autoMerge) {
+      out.push('', `Not merged automatically: what it adds would run in this repository for the first time, with its permissions and secrets, so a person reviews and merges it.`);
+    }
   }
   if (removals.length) {
     const names = removals.map((removal) => `\`${WORKFLOWS}/${removal.name}\``).join(', ');

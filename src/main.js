@@ -57,12 +57,22 @@
 //
 // Auto-merge: with auto-merge set to a merge method, the sync pull request that is left open,
 // whether it was just created, updated or left alone, gets GitHub's auto-merge with that method,
-// unless it has it already. GitHub then merges it once the default branch's rules are met, its
-// required checks and reviews included, so a sync that passes them needs no one to merge it. A
+// unless it has it already or it adds something; see below. GitHub then merges it once the
+// default branch's rules are met, its required checks and reviews included, so a sync that passes
+// them needs no one to merge it. A
 // pull request someone turned auto-merge off on gets it again from the next run that writes or
 // looks at it. When GitHub refuses, as in a repository that doesn't allow auto-merge, or for a pull
 // request that is mergeable right away because nothing is required of it, that is a warning and
 // the pull request stays open: merging it without waiting for anything is left to a person.
+//
+// A pull request that adds a workflow or a file the target doesn't have yet never gets
+// auto-merge: a new workflow runs with the repository's permissions and secrets, so a person
+// reviews and merges it. Updates and removals of what the target already runs merge themselves as
+// before. Auto-merge is turned off, before anything is pushed, when the sync rebuilds a pull
+// request that has it into one that adds something, so the new commit can't merge on the old
+// decision. A pull request that is left alone keeps auto-merge a person turned on, after reviewing
+// what it adds; one the sync itself turned on, as the account that opened the pull request, is
+// turned off. When GitHub refuses to turn it off, the run fails, and nothing is pushed.
 //
 // Force: with force, the open pull request is rebuilt from the default branch even when it
 // already holds the changes, and its description is rewritten. That is the manual way to
@@ -172,6 +182,37 @@ async function enableAutoMerge(github, core, pullRequest, method) {
   core.notice(`Turned on auto-merge (${method}) for #${pullRequest.number}.`);
   return 'enabled';
 }
+
+// Turns GitHub's auto-merge off for the pull request, if it is on. Unlike turning it on, a refusal
+// fails the run: the pull request would merge what it adds without a person.
+const DISABLE_AUTO_MERGE = `mutation($pullRequestId: ID!) {
+  disablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId }) {
+    pullRequest { number }
+  }
+}`;
+
+async function disableAutoMerge(github, core, pullRequest, reason) {
+  if (!pullRequest.auto_merge) return;
+  try {
+    await github.graphql(DISABLE_AUTO_MERGE, { pullRequestId: pullRequest.node_id });
+  } catch (error) {
+    throw new Error(`Couldn't turn off auto-merge for #${pullRequest.number}, which ${reason}: ${error.message}`);
+  }
+  pullRequest.auto_merge = null;
+  core.notice(`Turned off auto-merge for #${pullRequest.number}, because it ${reason}.`);
+}
+
+// What auto-merge the pull request that is left open gets: enabled or unavailable from
+// enableAutoMerge, withheld when it adds something, or empty without the input.
+async function autoMergeFor(github, core, inputs, pullRequest, added) {
+  if (!inputs.autoMerge) return '';
+  if (!added.length) return enableAutoMerge(github, core, pullRequest, inputs.autoMerge);
+  core.notice(`#${pullRequest.number} adds ${added.join(', ')}, which this repository doesn't have yet, so it gets no auto-merge: a person reviews and merges it.`);
+  return 'withheld';
+}
+
+// The words for a pull request that adds these.
+const adding = (added) => `adds ${added.join(', ')}, which this repository doesn't have yet`;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -354,11 +395,21 @@ async function sync({ github, context, core, inputs, wait }) {
       } else {
         if (conflicting === null) core.info(`GitHub hasn't worked out yet whether #${pullRequest.number} conflicts with ${defaultBranch}. A later run looks again.`);
         core.notice(`#${pullRequest.number} already holds these changes: ${pullRequest.html_url}`);
-        const autoMerge = inputs.autoMerge ? await enableAutoMerge(github, core, pullRequest, inputs.autoMerge) : '';
+        // Auto-merge a person turned on stays: they decided on what it adds. One this sync turned
+        // on, as the account that opened it, goes.
+        const enabledBy = pullRequest.auto_merge?.enabled_by?.login;
+        if (inputs.autoMerge && added.length && enabledBy && enabledBy === pullRequest.user?.login) {
+          await disableAutoMerge(github, core, pullRequest, adding(added));
+        }
+        const autoMerge = await autoMergeFor(github, core, inputs, pullRequest, added);
         return setOutputs(core, { result: 'unchanged', changed, added, removed, pullRequest, autoMerge });
       }
     }
   }
+
+  // Before the push, so the commit that adds something never has auto-merge on, whoever turned it
+  // on for the commits before.
+  if (pullRequest && inputs.autoMerge && added.length) await disableAutoMerge(github, core, pullRequest, adding(added));
 
   const { data: tree } = await github.rest.git.createTree({
     ...repo,
@@ -383,7 +434,7 @@ async function sync({ github, context, core, inputs, wait }) {
     result = 'created';
   }
   core.notice(`Pull request #${pullRequest.number} ${result}: ${pullRequest.html_url}`);
-  const autoMerge = inputs.autoMerge ? await enableAutoMerge(github, core, pullRequest, inputs.autoMerge) : '';
+  const autoMerge = await autoMergeFor(github, core, inputs, pullRequest, added);
   return setOutputs(core, { result, changed, added, removed, pullRequest, autoMerge });
 }
 
