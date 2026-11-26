@@ -72,6 +72,13 @@ removals on top of the default branch and points its branch, `sync/workflows`, a
   repository must allow auto-merge in its settings. When GitHub refuses, as there, or because the
   pull request is mergeable at once with nothing required to wait for, that is a warning, and the
   pull request stays open for a person to merge.
+- A pull request that adds a workflow or a file the repository doesn't have yet never gets
+  auto-merge, and its description says so: a new workflow runs with the repository's permissions
+  and secrets for the first time, so a person reviews and merges it. When the sync rebuilds a pull
+  request that has auto-merge into one that adds something, it turns auto-merge off before it
+  pushes, and fails without pushing when GitHub refuses. A pull request that is left alone keeps
+  auto-merge a person turned on after reviewing it; auto-merge the sync turned on goes. Updates
+  and removals merge themselves as before.
 - Once the default branch matches the source, lacks nothing and has no retired workflow, the open pull request
   is closed and its branch deleted.
 
@@ -119,7 +126,7 @@ The token needs contents, pull requests and workflows write on the repository. T
 | `ignore-whitespace` | `true` | Leave copies that differ only in whitespace, not indentation. |
 | `dry-run` | `false` | Report the copies that differ, change nothing. |
 | `force` | `false` | Rebuild the open pull request from the default branch even when it already holds the changes. |
-| `auto-merge` | | `merge`, `squash` or `rebase`: turn on auto-merge for the pull request with that method. Empty leaves it off. |
+| `auto-merge` | | `merge`, `squash` or `rebase`: turn on auto-merge for the pull request with that method, unless it adds a workflow or a file. Empty leaves it off. |
 
 | Output | |
 | --- | --- |
@@ -128,7 +135,7 @@ The token needs contents, pull requests and workflows write on the repository. T
 | `added` | A JSON array of those in `changed` that the repository didn't have. |
 | `removed` | A JSON array of the retired file names the repository still has. |
 | `pull-request-number`, `pull-request-url` | The sync pull request, or empty. |
-| `auto-merge` | `enabled` when the pull request has auto-merge on, `unavailable` when GitHub refused, or empty. |
+| `auto-merge` | `enabled` when the pull request has auto-merge on, `unavailable` when GitHub refused, `withheld` when it adds a workflow or a file, or empty. |
 
 The action is a composite action with one `actions/github-script` step and plain CommonJS modules
 in `src/`: no npm dependencies, no build, no `dist/`. Run the tests with `node --test test/*.test.js`.

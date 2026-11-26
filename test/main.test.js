@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { SOURCE, SOURCE_SHA, httpError, mockCore, mockGithub, sourceCheckout, context, env } = require('./helpers');
+const { BOT, SOURCE, SOURCE_SHA, httpError, mockCore, mockGithub, sourceCheckout, context, env } = require('./helpers');
 const main = require('../src/main');
 
 const W = '.github/workflows';
@@ -662,6 +662,94 @@ test('without auto-merge, or with nothing to sync, auto-merge is left alone', as
   const dry = await run(t, { github: mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } }), source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_AUTO_MERGE: 'squash', SYNC_DRY_RUN: 'true' });
   assert.equal(dry.result, 'dry-run');
   assert.equal(dry.core.outputs['auto-merge'], '');
+});
+
+test('a pull request that adds a workflow or a file gets no auto-merge', async (t) => {
+  for (const [source, overrides, name] of [
+    [{ [`${W}/codeql.yml`]: 'v2\n', [`${W}/new.yml`]: 'name: New\n' }, {}, 'new.yml'],
+    [{ [`${W}/codeql.yml`]: 'v2\n', '.github/egress-firewall.yaml': 'mode: log\n' }, { SYNC_FILES: '.github/egress-firewall.yaml' }, '.github/egress-firewall.yaml'],
+  ]) {
+    const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+    const { result, core } = await run(t, { github, source, SYNC_ADD: 'true', SYNC_AUTO_MERGE: 'squash', ...overrides });
+    assert.equal(result, 'created', name);
+    assert.deepEqual(core.failed, []);
+    assert.deepEqual(writes(github), ['createTree', 'createCommit', 'createRef', 'createPull'], name);
+    assert.equal(core.outputs['auto-merge'], 'withheld');
+    assert.equal(github.pulls[0].auto_merge, null);
+    assert.ok(core.notices.some((notice) => notice.includes(`#1 adds ${name}, which this repository doesn't have yet, so it gets no auto-merge`)), name);
+    assert.match(github.pulls[0].body, /Not merged automatically: what it adds would run in this repository for the first time/);
+  }
+});
+
+test('without auto-merge, the description of a pull request that adds says nothing about merging', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  const { core } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v1\n', [`${W}/new.yml`]: 'n\n' }, SYNC_ADD: 'true' });
+  assert.equal(core.outputs['auto-merge'], '');
+  assert.doesNotMatch(github.pulls[0].body, /merged automatically/);
+});
+
+test('a pull request that only updates and removes still gets auto-merge', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n', [`${W}/retired.yml`]: 'r\n' } });
+  const { result, core } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_ADD: 'true', SYNC_REMOVE: 'retired.yml', SYNC_AUTO_MERGE: 'squash' });
+  assert.equal(result, 'created');
+  assert.deepEqual(writes(github), ['createTree', 'createCommit', 'createRef', 'createPull', 'enableAutoMerge']);
+  assert.equal(core.outputs['auto-merge'], 'enabled');
+  assert.doesNotMatch(github.pulls[0].body, /merged automatically/);
+});
+
+test('auto-merge is turned off before a pull request that has it is rebuilt to add something', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_ADD: 'true', SYNC_AUTO_MERGE: 'squash' });
+  assert.ok(github.pulls[0].auto_merge);
+  github.calls.length = 0;
+  const { result, core } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n', [`${W}/new.yml`]: 'n\n' }, SYNC_ADD: 'true', SYNC_AUTO_MERGE: 'squash' });
+  assert.equal(result, 'updated');
+  assert.deepEqual(core.failed, []);
+  assert.deepEqual(writes(github), ['disableAutoMerge', 'createTree', 'createCommit', 'updateRef', 'updatePull']);
+  assert.equal(github.pulls[0].auto_merge, null);
+  assert.equal(core.outputs['auto-merge'], 'withheld');
+  assert.ok(core.notices.includes("Turned off auto-merge for #1, because it adds new.yml, which this repository doesn't have yet."));
+
+  // Once the addition is gone from the source, the update merges itself again.
+  github.calls.length = 0;
+  const again = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v3\n' }, SYNC_ADD: 'true', SYNC_AUTO_MERGE: 'squash' });
+  assert.equal(again.result, 'updated');
+  assert.deepEqual(writes(github), ['createTree', 'createCommit', 'updateRef', 'updatePull', 'enableAutoMerge']);
+  assert.equal(again.core.outputs['auto-merge'], 'enabled');
+});
+
+test('when GitHub refuses to turn auto-merge off, the run fails and nothing is pushed', async (t) => {
+  const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+  await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n' }, SYNC_AUTO_MERGE: 'squash' });
+  const head = github.refs.get('sync/workflows');
+  github.disableAutoMergeError = new Error('Resource not accessible by integration');
+  github.calls.length = 0;
+  const { result, core } = await run(t, { github, source: { [`${W}/codeql.yml`]: 'v2\n', [`${W}/new.yml`]: 'n\n' }, SYNC_ADD: 'true', SYNC_AUTO_MERGE: 'squash' });
+  assert.equal(result, 'error');
+  assert.match(core.failed[0], /Couldn't turn off auto-merge for #1, which adds new.yml, which this repository doesn't have yet: Resource not accessible by integration/);
+  assert.deepEqual(writes(github), ['disableAutoMerge']);
+  assert.equal(github.refs.get('sync/workflows'), head);
+});
+
+test('a pull request left alone that adds something loses only the auto-merge the sync turned on', async (t) => {
+  const source = { [`${W}/codeql.yml`]: 'v2\n', [`${W}/new.yml`]: 'n\n' };
+  const inputs = { SYNC_ADD: 'true', SYNC_AUTO_MERGE: 'squash' };
+  for (const [enabledBy, expected] of [
+    [BOT, ['disableAutoMerge']],
+    ['octocat', []],
+  ]) {
+    const github = mockGithub({ files: { [`${W}/codeql.yml`]: 'v1\n' } });
+    await run(t, { github, source, ...inputs });
+    // The pull request of an earlier version of the action, or one a person turned auto-merge on for.
+    github.pulls[0].auto_merge = { merge_method: 'squash', enabled_by: { login: enabledBy } };
+    github.calls.length = 0;
+    const { result, core } = await run(t, { github, source, ...inputs });
+    assert.equal(result, 'unchanged', enabledBy);
+    assert.deepEqual(core.failed, []);
+    assert.deepEqual(writes(github), expected, enabledBy);
+    assert.equal(core.outputs['auto-merge'], 'withheld');
+    assert.equal(Boolean(github.pulls[0].auto_merge), enabledBy !== BOT, enabledBy);
+  }
 });
 
 test('auto-merge only takes a merge method', async (t) => {

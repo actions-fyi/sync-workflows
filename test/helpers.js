@@ -7,6 +7,8 @@ const { blobSha } = require('../src/source');
 
 const SOURCE = 'acme/.github';
 const SOURCE_SHA = 'a'.repeat(40);
+// The account of the action's token, which opens the pull requests.
+const BOT = 'sync-app[bot]';
 
 function httpError(status, message) {
   return Object.assign(new Error(`${message} - https://docs.github.com/rest`), { status });
@@ -63,13 +65,22 @@ function mockGithub({ files = {}, defaultBranch = 'main' } = {}) {
     mergeable: true,
     // What enablePullRequestAutoMerge fails with, e.g. httpError(...), or null when it succeeds.
     autoMergeError: null,
-    // Only enablePullRequestAutoMerge goes through GraphQL.
+    // What disablePullRequestAutoMerge fails with, or null when it succeeds.
+    disableAutoMergeError: null,
+    // Only enablePullRequestAutoMerge and disablePullRequestAutoMerge go through GraphQL. The
+    // action's token is the account that opened the pull requests, and turns auto-merge on.
     graphql: async (query, { pullRequestId, mergeMethod }) => {
+      const pull = pulls.find((candidate) => candidate.node_id === pullRequestId);
+      if (/disablePullRequestAutoMerge/.test(query)) {
+        record('disableAutoMerge', { pullRequestId });
+        if (github.disableAutoMergeError) throw github.disableAutoMergeError;
+        pull.auto_merge = null;
+        return { disablePullRequestAutoMerge: { pullRequest: { number: pull.number } } };
+      }
       record('enableAutoMerge', { pullRequestId, mergeMethod });
       if (!/enablePullRequestAutoMerge/.test(query)) throw new Error(`Unexpected GraphQL query: ${query}`);
       if (github.autoMergeError) throw github.autoMergeError;
-      const pull = pulls.find((candidate) => candidate.node_id === pullRequestId);
-      pull.auto_merge = { merge_method: mergeMethod.toLowerCase() };
+      pull.auto_merge = { merge_method: mergeMethod.toLowerCase(), enabled_by: { login: BOT } };
       return { enablePullRequestAutoMerge: { pullRequest: { number: pull.number } } };
     },
     calls,
@@ -155,7 +166,7 @@ function mockGithub({ files = {}, defaultBranch = 'main' } = {}) {
         create: async ({ title, body, head, base }) => {
           record('createPull', { title, head, base });
           const number = pulls.length + 1;
-          const pull = { number, node_id: `PR_${number}`, auto_merge: null, title, body, state: 'open', head: { ref: head }, base: { ref: base }, html_url: `https://github.com/acme/app/pull/${number}` };
+          const pull = { number, node_id: `PR_${number}`, user: { login: BOT }, auto_merge: null, title, body, state: 'open', head: { ref: head }, base: { ref: base }, html_url: `https://github.com/acme/app/pull/${number}` };
           pulls.push(pull);
           return { data: pull };
         },
@@ -192,4 +203,4 @@ function env(root, overrides = {}) {
   };
 }
 
-module.exports = { SOURCE, SOURCE_SHA, httpError, mockCore, mockGithub, sourceCheckout, context, env };
+module.exports = { BOT, SOURCE, SOURCE_SHA, httpError, mockCore, mockGithub, sourceCheckout, context, env };

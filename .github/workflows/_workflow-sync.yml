@@ -57,6 +57,11 @@ name: Sync
 #   sets. A repository that doesn't allow auto-merge, or requires nothing to wait for, gets a
 #   warning instead, and its pull request is merged by hand as before. The token's pull requests
 #   and contents write is what turning auto-merge on takes.
+# - Leaves auto-merge off for a sync pull request that adds a workflow, or the egress firewall's
+#   policy, that the repository doesn't have yet, and turns it off where the sync had turned it on.
+#   A new workflow runs with the repository's permissions and secrets for the first time, so a
+#   person reviews and merges that pull request. Nothing here approves a sync pull request: a review
+#   the repository's rulesets require is always a person's.
 #
 # The action runs with `uses: $/`, which resolves to this repository at the commit this workflow
 # runs at, wherever it was called from. `./` would resolve to the caller's checkout instead.

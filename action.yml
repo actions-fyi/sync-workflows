@@ -23,7 +23,8 @@ branding:
 # have a copy.
 #
 # With auto-merge, the sync pull request also gets GitHub's auto-merge, so it merges itself once
-# the default branch's required checks and reviews pass.
+# the default branch's required checks and reviews pass. Not one that adds a workflow or a file the
+# repository doesn't have yet: a person reviews and merges that one.
 #
 # Every input reaches the script through the step's env, never by interpolation into the script.
 #
@@ -113,8 +114,10 @@ inputs:
   auto-merge:
     description: >-
       A merge method, merge, squash or rebase, to turn on GitHub's auto-merge with for the sync pull
-      request, so it is merged once the default branch's rules are met. Empty leaves it off. The
-      repository must allow auto-merge; when GitHub refuses, that is a warning.
+      request, so it is merged once the default branch's rules are met. Empty leaves it off. A pull
+      request that adds a workflow or a file the repository doesn't have yet never gets it, and
+      loses it if the sync turned it on. The repository must allow auto-merge; when GitHub refuses
+      to turn it on, that is a warning.
     required: false
     default: ""
 outputs:
@@ -143,7 +146,8 @@ outputs:
   auto-merge:
     description: >-
       enabled when the sync pull request has auto-merge on, unavailable when GitHub refused to turn
-      it on, or empty without auto-merge or a pull request.
+      it on, withheld when the pull request adds a workflow or a file and so gets none from the
+      sync, or empty without auto-merge or a pull request.
     value: ${{ steps.sync.outputs.auto-merge }}
 runs:
   using: composite
